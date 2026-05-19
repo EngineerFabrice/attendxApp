@@ -15,4 +15,11 @@ class HistoryApi {
   Future<Response> getCourses() {
     return _dio.get(ApiEndpoints.studentCourses);
   }
+
+  Future<Response> submitAppeal(String recordId, String reason) {
+    return _dio.post(ApiEndpoints.appeals, data: {
+      'recordId': recordId,
+      'reason': reason,
+    });
+  }
 }

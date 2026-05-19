@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/auth_provider.dart';
 import '../domain/auth_state.dart';
+import '../../../core/services/biometric_service.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -33,8 +34,16 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     if (!_hasNavigated) {
       if (authState is AuthAuthenticated) {
         _hasNavigated = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) Navigator.pushReplacementNamed(context, '/dashboard');
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (!mounted) return;
+          final nav = Navigator.of(context);
+          final biometricsEnabled = await BiometricService.isEnabled();
+          if (!mounted) return;
+          if (biometricsEnabled) {
+            nav.pushReplacementNamed('/biometric-lock');
+          } else {
+            nav.pushReplacementNamed('/dashboard');
+          }
         });
       } else if (authState is AuthUnauthenticated) {
         _hasNavigated = true;

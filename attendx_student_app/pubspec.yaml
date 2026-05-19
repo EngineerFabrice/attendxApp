@@ -49,6 +49,12 @@ dependencies:
   firebase_messaging: ^16.2.1
   socket_io_client: ^2.0.3+1
   table_calendar: ^3.1.2
+  mobile_scanner: ^6.0.0
+  local_auth: ^2.3.0
+  safe_device: ^1.2.0
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  uuid: ^4.5.1
 
 dev_dependencies:
   flutter_test:

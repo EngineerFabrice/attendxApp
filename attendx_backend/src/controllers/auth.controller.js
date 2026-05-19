@@ -161,4 +161,24 @@ async function refreshToken(req, res, next) {
   } catch (err) { next(err) }
 }
 
-module.exports = { login, logout, me, forgotPassword, resetPassword, refreshToken }
+async function updateProfile(req, res, next) {
+  try {
+    const { fullName, phone } = req.body
+    if (!fullName?.trim()) return res.status(400).json(error('fullName is required'))
+    await db.query(
+      'UPDATE users SET full_name = ?, phone = ? WHERE id = ?',
+      [fullName.trim(), phone?.trim() || null, req.user.id]
+    )
+    const [[u]] = await db.query(
+      'SELECT id, full_name, email, role, reg_number, department, phone, is_active, created_at FROM users WHERE id = ?',
+      [req.user.id]
+    )
+    res.json(success({
+      id: u.id, fullName: u.full_name, email: u.email, role: u.role,
+      regNumber: u.reg_number, department: u.department,
+      phone: u.phone, isActive: !!u.is_active, createdAt: u.created_at,
+    }))
+  } catch (err) { next(err) }
+}
+
+module.exports = { login, logout, me, forgotPassword, resetPassword, refreshToken, updateProfile }

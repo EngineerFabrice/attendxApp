@@ -34,6 +34,9 @@ function initSocket(io) {
   io.on('connection', socket => {
     const { id: userId, role } = socket.user
 
+    // Every user joins their personal room for direct notifications
+    socket.join(`user:${userId}`)
+
     // Lecturer: join monitoring room for a specific session
     socket.on('join_session', ({ sessionId }) => {
       if (role === 'lecturer' || role === 'admin') {

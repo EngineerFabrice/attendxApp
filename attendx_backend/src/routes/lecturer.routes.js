@@ -14,5 +14,7 @@ router.get("/sessions/:id/attendance", ctrl.getSessionAttendance);
 router.get("/students", ctrl.getStudents);
 router.post("/students", ctrl.createStudent);
 router.get("/sessions/:id/enrolled-students", ctrl.getSessionEnrolledStudents);
+router.get("/sessions/:id/qr", ctrl.getSessionQrToken);
+router.post("/sessions/:id/mark-present", ctrl.markStudentPresent);
 
 module.exports = router;

@@ -104,6 +104,23 @@ async function run() {
   console.log('✓ Enrollments seeded')
 
   await db.end()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
   console.log('\n✅ Database seeded successfully')
   console.log('\nTest accounts:')
   console.log('  Admin:    admin@attendx.edu   / Admin@1234')

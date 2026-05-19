@@ -1,5 +1,5 @@
 const bcrypt = require("bcryptjs");
-const { randomUUID } = require("crypto");
+const { randomUUID, createHmac } = require("crypto");
 const db = require("../config/database");
 const { success, error } = require("../utils/response");
 const fcm = require("../services/fcm.service");
@@ -7,6 +7,18 @@ const admin = require("firebase-admin");
 
 function generateCode() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
+}
+
+// 30-second rotating QR token signed with JWT_SECRET
+function buildQrToken(sessionId) {
+  const window = Math.floor(Date.now() / 30000);
+  const secret = process.env.JWT_SECRET || "dev_secret";
+  const token = createHmac("sha256", secret)
+    .update(`${sessionId}|${window}`)
+    .digest("hex")
+    .slice(0, 16);
+  const secondsIntoWindow = Math.floor((Date.now() / 1000) % 30);
+  return { token, window, expiresInSeconds: 30 - secondsIntoWindow };
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -72,7 +84,8 @@ async function getSessions(req, res, next) {
               c.id AS cId, c.code AS cCode, c.name AS cName,
               cl.id AS rId, cl.name AS rName,
               (SELECT COUNT(*) FROM enrollments e WHERE e.course_id=s.course_id) AS totalStudents,
-              (SELECT COUNT(*) FROM attendance_records r WHERE r.session_id=s.id AND r.status='present') AS presentCount
+              (SELECT COUNT(*) FROM attendance_records r WHERE r.session_id=s.id AND r.status='present') AS presentCount,
+              (SELECT COUNT(*) FROM attendance_records r WHERE r.session_id=s.id AND r.status='late')    AS lateCount
          FROM attendance_sessions s
          JOIN courses c ON c.id = s.course_id
          JOIN classrooms cl ON cl.id = s.classroom_id
@@ -93,6 +106,7 @@ async function getSessions(req, res, next) {
           expiresAt: r.expires_at,
           totalStudents: Number(r.totalStudents),
           presentCount: Number(r.presentCount),
+          lateCount: Number(r.lateCount),
         })),
       ),
     );
@@ -259,14 +273,22 @@ async function closeSession(req, res, next) {
 
 async function getSessionAttendance(req, res, next) {
   try {
-    const [owns] = await db.query(
-      "SELECT id FROM attendance_sessions WHERE id=? AND lecturer_id=?",
+    const [sessions] = await db.query(
+      `SELECT s.id, s.status,
+              c.id AS cId, c.code AS cCode, c.name AS cName,
+              cl.name AS roomName, cl.radius_m,
+              (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = s.course_id) AS totalStudents
+         FROM attendance_sessions s
+         JOIN courses c    ON c.id  = s.course_id
+         JOIN classrooms cl ON cl.id = s.classroom_id
+        WHERE s.id = ? AND s.lecturer_id = ?`,
       [req.params.id, req.user.id],
     );
-    if (!owns.length) return res.status(404).json(error("Session not found"));
+    if (!sessions.length) return res.status(404).json(error("Session not found"));
+    const sess = sessions[0];
 
     const [rows] = await db.query(
-      `SELECT r.id, r.status, r.marked_at, r.distance_m, r.geofence_passed,
+      `SELECT r.id, r.status, r.marked_at, r.distance_m, r.geofence_passed, r.submission_method,
               u.id AS uid, u.full_name, u.reg_number
          FROM attendance_records r
          JOIN users u ON u.id = r.student_id
@@ -274,22 +296,21 @@ async function getSessionAttendance(req, res, next) {
         ORDER BY r.marked_at ASC`,
       [req.params.id],
     );
-    res.json(
-      success(
-        rows.map((r) => ({
-          id: r.id,
-          status: r.status,
-          checkedInAt: r.marked_at,
-          distanceM: Number(r.distance_m),
-          geofencePassed: !!r.geofence_passed,
-          student: {
-            id: r.uid,
-            fullName: r.full_name,
-            regNumber: r.reg_number,
-          },
-        })),
-      ),
-    );
+
+    res.json(success({
+      totalStudents: Number(sess.totalStudents),
+      classroom: { name: sess.roomName, radiusM: sess.radius_m },
+      course: { id: sess.cId, code: sess.cCode, name: sess.cName },
+      records: rows.map((r) => ({
+        id: r.id,
+        status: r.status,
+        checkedInAt: r.marked_at,
+        distanceM: Number(r.distance_m),
+        geofencePassed: !!r.geofence_passed,
+        submissionMethod: r.submission_method,
+        student: { id: r.uid, fullName: r.full_name, regNumber: r.reg_number },
+      })),
+    }));
   } catch (err) {
     next(err);
   }
@@ -427,6 +448,75 @@ async function getSessionEnrolledStudents(req, res, next) {
   }
 }
 
+async function getSessionQrToken(req, res, next) {
+  try {
+    const { id } = req.params;
+    const [owns] = await db.query(
+      "SELECT id FROM attendance_sessions WHERE id=? AND lecturer_id=? AND status='active'",
+      [id, req.user.id],
+    );
+    if (!owns.length)
+      return res.status(404).json(error("Active session not found"));
+
+    const { token, window, expiresInSeconds } = buildQrToken(id);
+    // QR payload the student app will scan
+    const payload = JSON.stringify({ s: id, t: token, w: window });
+    res.json(success({ payload, expiresInSeconds, windowDurationSeconds: 30 }));
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function markStudentPresent(req, res, next) {
+  try {
+    const { id: sessionId } = req.params;
+    const { studentId } = req.body;
+    if (!studentId) return res.status(400).json(error('studentId is required'));
+
+    // Verify session belongs to this lecturer
+    const [sessions] = await db.query(
+      'SELECT id FROM attendance_sessions WHERE id = ? AND lecturer_id = ?',
+      [sessionId, req.user.id],
+    );
+    if (!sessions.length) return res.status(403).json(error('Access denied'));
+
+    // Upsert attendance record as manually marked present
+    const [existing] = await db.query(
+      'SELECT id FROM attendance_records WHERE session_id = ? AND student_id = ?',
+      [sessionId, studentId],
+    );
+    if (existing.length) {
+      await db.query(
+        "UPDATE attendance_records SET status = 'present', submission_method = 'manual' WHERE id = ?",
+        [existing[0].id],
+      );
+    } else {
+      await db.query(
+        `INSERT INTO attendance_records (id, session_id, student_id, status, submission_method, distance_m, checked_in_at)
+         VALUES (?, ?, ?, 'present', 'manual', 0, NOW())`,
+        [randomUUID(), sessionId, studentId],
+      );
+    }
+
+    // Emit real-time update
+    const io = req.app.get('io');
+    if (io) {
+      const [[u]] = await db.query(
+        'SELECT full_name, reg_number FROM users WHERE id = ?', [studentId],
+      );
+      io.to(`session:${sessionId}`).emit('attendance_update', {
+        student: { id: studentId, fullName: u?.full_name, regNumber: u?.reg_number },
+        status: 'present',
+        submissionMethod: 'manual',
+        checkedInAt: new Date().toISOString(),
+        distanceM: 0,
+      });
+    }
+
+    res.json(success({ message: 'Marked present' }));
+  } catch (err) { next(err); }
+}
+
 module.exports = {
   getDashboard,
   getSessions,
@@ -438,4 +528,6 @@ module.exports = {
   getCourses,
   getClassrooms,
   getSessionEnrolledStudents,
+  getSessionQrToken,
+  markStudentPresent,
 };

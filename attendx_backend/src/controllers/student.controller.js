@@ -1,9 +1,10 @@
-﻿const { randomUUID } = require('crypto')
-const db      = require('../config/database')
+﻿const { randomUUID, createHmac } = require('crypto')
+const db       = require('../config/database')
 const { haversine } = require('../utils/haversine')
 const { success, error } = require('../utils/response')
-const { body, validationResult } = require('express-validator')  // ADDED: express-validator
-const fcm     = require('../services/fcm.service')
+const { body, validationResult } = require('express-validator')
+const fcm      = require('../services/fcm.service')
+const security = require('../services/security.service')
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 async function getDashboard(req, res, next) {
@@ -58,6 +59,22 @@ async function getDashboard(req, res, next) {
   } catch (err) { next(err) }
 }
 
+// ── QR token validator ───────────────────────────────────────────────────────
+function validateQrToken(sessionId, token, window) {
+  const secret = process.env.JWT_SECRET || 'dev_secret'
+  const now = Math.floor(Date.now() / 30000)
+  for (const w of [now, now - 1]) {
+    if (Number(window) === w) {
+      const expected = createHmac('sha256', secret)
+        .update(`${sessionId}|${w}`)
+        .digest('hex')
+        .slice(0, 16)
+      if (expected === token) return true
+    }
+  }
+  return false
+}
+
 // ── Validation rules for check-in ────────────────────────────────────────────
 const checkInValidation = [
   body('sessionId').isUUID().withMessage('Valid session ID required'),
@@ -73,28 +90,39 @@ async function checkIn(req, res, next) {
     if (!errors.isEmpty()) return res.status(422).json({ success: false, errors: errors.array() })
 
     const studentId = req.user.id
-    const { sessionId, latitude, longitude, entryCode } = req.body  // ADDED: entryCode
+    const { sessionId, latitude, longitude, entryCode, qrToken, qrWindow } = req.body
 
     // Validate coordinate ranges
     if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
       return res.status(422).json({ success: false, error: 'Invalid coordinates' })
     }
 
-    // Load session + classroom
+    // Load session + classroom + course late threshold
     const [[session]] = await db.query(
       `SELECT s.id, s.course_id, s.status, s.checkin_open, s.expires_at, s.session_code,
-              cl.latitude AS clLat, cl.longitude AS clLon, cl.radius_m
+              s.started_at,
+              cl.latitude AS clLat, cl.longitude AS clLon, cl.radius_m,
+              c.late_threshold_minutes
          FROM attendance_sessions s
          JOIN classrooms cl ON cl.id = s.classroom_id
+         JOIN courses    c  ON c.id  = s.course_id
         WHERE s.id = ?`,
       [sessionId]
     )
 
     if (!session) return res.status(404).json(error('Session not found'))
-    
-    // NEW: Verify entry code
-    if (session.session_code !== entryCode.toUpperCase()) {
-      return res.status(401).json(error('Invalid session code'))
+
+    // Verify auth method: QR token OR entry code (one must be provided)
+    if (qrToken && qrWindow !== undefined) {
+      if (!validateQrToken(sessionId, qrToken, qrWindow)) {
+        return res.status(401).json(error('Invalid or expired QR code'))
+      }
+    } else if (entryCode) {
+      if (session.session_code !== entryCode.toUpperCase()) {
+        return res.status(401).json(error('Invalid session code'))
+      }
+    } else {
+      return res.status(400).json(error('Provide either a QR token or entry code'))
     }
     
     if (session.status !== 'active' || !session.checkin_open) {
@@ -105,6 +133,28 @@ async function checkIn(req, res, next) {
     if (new Date() > new Date(session.expires_at)) {
       return res.status(410).json({ success: false, error: 'This session has expired' })
     }
+
+    // ── Security evaluation ───────────────────────────────────────────────────
+    const secCtx = req.body.securityContext || {}
+    const secResult = await security.evaluate(secCtx)
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress
+
+    // Log every check-in with its security result (low, medium, high)
+    if (secResult.riskLevel !== 'low') {
+      await security.log({
+        studentId, sessionId, result: secResult,
+        securityContext: secCtx, ipAddress: clientIp,
+      })
+    }
+
+    if (secResult.action === 'blocked') {
+      return res.status(403).json({
+        success: false,
+        error: 'Check-in blocked due to security concerns.',
+        security: { riskLevel: secResult.riskLevel, score: secResult.score, flags: secResult.flags },
+      })
+    }
+    // ── End security evaluation ───────────────────────────────────────────────
 
     // Verify enrollment
     const [[enrolled]] = await db.query(
@@ -130,13 +180,19 @@ async function checkIn(req, res, next) {
       ))
     }
 
+    // Determine attendance status — late if check-in is past the threshold
+    const lateThresholdMs = (session.late_threshold_minutes ?? 15) * 60 * 1000
+    const attendanceStatus =
+      (new Date() - new Date(session.started_at)) > lateThresholdMs ? 'late' : 'present'
+
     // Save record
     const recordId = randomUUID()
+    const method = (qrToken) ? 'qr' : 'code'
     await db.query(
       `INSERT INTO attendance_records
-         (id, session_id, student_id, status, geofence_passed, latitude, longitude, distance_m)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [recordId, sessionId, studentId, 'present', 1, latitude, longitude, distanceM.toFixed(2)]
+         (id, session_id, student_id, status, submission_method, geofence_passed, latitude, longitude, distance_m)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [recordId, sessionId, studentId, attendanceStatus, method, 1, latitude, longitude, distanceM.toFixed(2)]
     )
 
     // Emit socket event to lecturer's monitoring room
@@ -148,6 +204,7 @@ async function checkIn(req, res, next) {
       io.to(`session:${sessionId}`).emit('attendance_update', {
         sessionId, studentId,
         student: { fullName: student.full_name, regNumber: student.reg_number },
+        status: attendanceStatus,
         distanceM: Math.round(distanceM), checkedInAt: new Date().toISOString(),
       })
     }
@@ -161,9 +218,18 @@ async function checkIn(req, res, next) {
 
     res.json(success({
       status: 'checked_in',
+      attendanceStatus,
       distanceM: Math.round(distanceM),
       checkedInAt: new Date().toISOString(),
-      message: 'Attendance recorded successfully.',
+      message: attendanceStatus === 'late'
+        ? `Marked as late — arrived ${Math.round((new Date() - new Date(session.started_at)) / 60000)} min after session started.`
+        : 'Attendance recorded successfully.',
+      security: {
+        riskLevel: secResult.riskLevel,
+        score: secResult.score,
+        flags: secResult.flags,
+        warned: secResult.action === 'warned',
+      },
     }))
   } catch (err) { next(err) }
 }
@@ -183,11 +249,13 @@ async function getHistory(req, res, next) {
       `SELECT r.id, r.status, r.marked_at, r.geofence_passed, r.distance_m,
               s.session_code, s.started_at,
               c.id AS cId, c.code AS cCode, c.name AS cName,
-              cl.name AS roomName
+              cl.name AS roomName,
+              a.status AS appealStatus, a.id AS appealId, a.review_note AS appealNote
          FROM attendance_records r
          JOIN attendance_sessions s ON s.id = r.session_id
          JOIN courses c ON c.id = s.course_id
          JOIN classrooms cl ON cl.id = s.classroom_id
+         LEFT JOIN appeals a ON a.record_id = r.id
         WHERE ${where}
         ORDER BY r.marked_at DESC
         LIMIT ? OFFSET ?`,
@@ -205,6 +273,9 @@ async function getHistory(req, res, next) {
       rows.map(r => ({
         id: r.id, status: r.status, markedAt: r.marked_at,
         geofencePassed: !!r.geofence_passed, distanceM: Number(r.distance_m),
+        appeal: r.appealId ? {
+          id: r.appealId, status: r.appealStatus, reviewNote: r.appealNote,
+        } : null,
         session: {
           sessionCode: r.session_code, startedAt: r.started_at,
           course: { id: r.cId, code: r.cCode, name: r.cName },
@@ -222,10 +293,12 @@ async function getAnalytics(req, res, next) {
     const studentId = req.user.id
 
     const [courseStats] = await db.query(
-      `SELECT c.id, c.code, c.name,
+      `SELECT c.id, c.code, c.name, c.late_threshold_minutes AS lateThresholdMinutes,
               COUNT(r.id) AS totalSessions,
               SUM(r.status='present') AS presentSessions,
-              ROUND(100 * SUM(r.status='present') / NULLIF(COUNT(r.id),0), 1) AS attendanceRate
+              SUM(r.status='late')    AS lateSessions,
+              SUM(r.status='absent')  AS absentSessions,
+              ROUND(100 * (SUM(r.status='present') + SUM(r.status='late')) / NULLIF(COUNT(r.id),0), 1) AS attendanceRate
          FROM courses c
          JOIN enrollments en ON en.course_id = c.id AND en.student_id = ?
          LEFT JOIN attendance_sessions s ON s.course_id = c.id
@@ -262,9 +335,12 @@ async function getAnalytics(req, res, next) {
       longestStreak,
       courseStats: courseStats.map(c => ({
         id: c.id, code: c.code, name: c.name,
-        totalSessions: Number(c.totalSessions),
+        lateThresholdMinutes: Number(c.lateThresholdMinutes) || 15,
+        totalSessions:   Number(c.totalSessions),
         presentSessions: Number(c.presentSessions),
-        attendanceRate: Number(c.attendanceRate) || 0,
+        lateSessions:    Number(c.lateSessions)   || 0,
+        absentSessions:  Number(c.absentSessions) || 0,
+        attendanceRate:  Number(c.attendanceRate)  || 0,
       })),
       trendData: trend.map(t => ({ sessionDate: t.sessionDate, status: t.status })),
     }))

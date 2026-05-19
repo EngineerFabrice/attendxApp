@@ -9,22 +9,104 @@ import {
   Bell,
   AlertTriangle,
   Loader2,
+  QrCode,
+  X,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { io } from "socket.io-client";
 import api from "../services/api";
+
+// ── QR Panel ─────────────────────────────────────────────────────────────────
+function QrPanel({ sessionId, onClose }) {
+  const [qrData, setQrData] = useState(null);
+  const [countdown, setCountdown] = useState(30);
+  const timerRef = useRef(null);
+
+  const fetchQr = useCallback(async () => {
+    try {
+      const r = await api.get(`/lecturer/sessions/${sessionId}/qr`);
+      const { payload, expiresInSeconds } = r.data.data;
+      setQrData(payload);
+      setCountdown(expiresInSeconds);
+    } catch {
+      // silently retry on next tick
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    fetchQr();
+    timerRef.current = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) { fetchQr(); return 30; }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timerRef.current);
+  }, [fetchQr]);
+
+  const pct = Math.round((countdown / 30) * 100);
+  const ring = `conic-gradient(#10b981 ${pct}%, #e2e8f0 ${pct}%)`;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-2xl text-center">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="font-bold text-slate-800 text-lg">QR Check-in Code</h3>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
+            <X size={18} className="text-slate-500" />
+          </button>
+        </div>
+
+        {qrData ? (
+          <>
+            <div className="flex justify-center mb-4 p-4 bg-white border-2 border-slate-100 rounded-xl inline-block">
+              <QRCodeSVG value={qrData} size={220} level="M" />
+            </div>
+
+            <div className="flex items-center justify-center gap-3 mt-4">
+              {/* Countdown ring */}
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-slate-800"
+                style={{ background: ring }}
+              >
+                <div className="w-7 h-7 bg-white rounded-full flex items-center justify-center text-xs font-bold">
+                  {countdown}
+                </div>
+              </div>
+              <p className="text-slate-500 text-sm">
+                Refreshes in <span className="font-semibold text-slate-700">{countdown}s</span>
+              </p>
+            </div>
+
+            <p className="text-xs text-slate-400 mt-3">
+              Students must be within the classroom geofence to check in.
+            </p>
+          </>
+        ) : (
+          <div className="flex justify-center py-12">
+            <Loader2 size={28} className="animate-spin text-slate-400" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function LiveMonitor() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [records, setRecords] = useState([]);
   const [totalStudents, setTotalStudents] = useState(0);
+  const [sessionMeta, setSessionMeta] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const [loading, setLoading] = useState(true);
   const [socketConnected, setSocketConnected] = useState(false);
   const [sessionClosed, setSessionClosed] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(null);
   const [sendingBulkReminder, setSendingBulkReminder] = useState(false);
+  const [markingPresent, setMarkingPresent] = useState(null);
   const [absentStudents, setAbsentStudents] = useState([]);
+  const [showQr, setShowQr] = useState(false);
   const socketRef = useRef(null);
   // Fetch all enrolled students to determine absent ones
   const fetchEnrolledStudents = useCallback(
@@ -58,6 +140,7 @@ export default function LiveMonitor() {
         setRecords(recordsList);
         if (sessionData.totalStudents)
           setTotalStudents(sessionData.totalStudents);
+        if (!Array.isArray(sessionData)) setSessionMeta(sessionData);
 
         // Get absent students (you may need to fetch enrolled students)
         // call via ref-stable function declared below
@@ -172,9 +255,35 @@ export default function LiveMonitor() {
     navigate("/sessions");
   }
 
-  const presentCount = records.filter((r) => r.status === "present").length;
+  // Manual mark-present for absent students
+  const markPresent = async (student) => {
+    try {
+      setMarkingPresent(student.id);
+      await api.post(`/lecturer/sessions/${id}/mark-present`, { studentId: student.id });
+      setAbsentStudents((prev) => prev.filter((s) => s.id !== student.id));
+      setRecords((prev) => [
+        ...prev,
+        {
+          id: `manual-${student.id}`,
+          student: { fullName: student.fullName, regNumber: student.regNumber, id: student.id },
+          status: 'present',
+          checkedInAt: new Date().toISOString(),
+          distanceM: 0,
+          submissionMethod: 'manual',
+        },
+      ]);
+    } catch (err) {
+      alert(`Failed to mark present: ${err.response?.data?.error || err.message}`);
+    } finally {
+      setMarkingPresent(null);
+    }
+  };
+
+  const presentCount = records.filter((r) => r.status === "present" || r.status === "late").length;
+  const lateCount = records.filter((r) => r.status === "late").length;
   const attendanceRate =
     totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : 0;
+  const radiusM = sessionMeta?.classroom?.radiusM ?? sessionMeta?.radiusM ?? null;
 
   function formatElapsed(s) {
     const m = Math.floor(s / 60);
@@ -220,18 +329,26 @@ export default function LiveMonitor() {
           </p>
         </div>
         {!sessionClosed && (
-          <button
-            onClick={handleClose}
-            className="btn-danger flex items-center gap-2"
-          >
-            <XCircle size={16} /> End Session
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowQr(true)}
+              className="btn-secondary flex items-center gap-2"
+            >
+              <QrCode size={16} /> Show QR
+            </button>
+            <button
+              onClick={handleClose}
+              className="btn-danger flex items-center gap-2"
+            >
+              <XCircle size={16} /> End Session
+            </button>
+          </div>
         )}
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+      <div className="grid grid-cols-5 gap-3">
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
           <div className="flex items-center gap-2 text-slate-500 text-sm mb-1">
             <Users size={15} />
             Checked In
@@ -241,15 +358,25 @@ export default function LiveMonitor() {
             of {totalStudents} students
           </p>
         </div>
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+          <div className="flex items-center gap-2 text-amber-500 text-sm mb-1">
+            <Clock size={15} />
+            Late
+          </div>
+          <p className="text-3xl font-bold text-amber-500">{lateCount}</p>
+          <p className="text-slate-400 text-xs mt-0.5">students late</p>
+        </div>
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
           <div className="flex items-center gap-2 text-slate-500 text-sm mb-1">
             <MapPin size={15} />
             Geofence
           </div>
-          <p className="text-3xl font-bold text-emerald-600">30m</p>
+          <p className="text-3xl font-bold text-emerald-600">
+            {radiusM != null ? `${radiusM}m` : '—'}
+          </p>
           <p className="text-slate-400 text-xs mt-0.5">Active radius</p>
         </div>
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
           <div className="flex items-center gap-2 text-slate-500 text-sm mb-1">
             <Clock size={15} />
             Duration
@@ -259,7 +386,7 @@ export default function LiveMonitor() {
           </p>
           <p className="text-slate-400 text-xs mt-0.5">HH:MM</p>
         </div>
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
           <div className="flex items-center gap-2 text-slate-500 text-sm mb-1">
             <Wifi size={15} />
             Attendance
@@ -317,23 +444,31 @@ export default function LiveMonitor() {
                   </p>
                   <p className="text-slate-400 text-xs">{s.regNumber}</p>
                 </div>
-                <button
-                  onClick={() => sendReminder(s)}
-                  disabled={sendingReminder === s.id}
-                  className="px-3 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-xs flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  {sendingReminder === s.id ? (
-                    <>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => sendReminder(s)}
+                    disabled={sendingReminder === s.id}
+                    className="px-3 py-1 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-xs flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {sendingReminder === s.id ? (
                       <Loader2 size={14} className="animate-spin" />
-                      Sending...
-                    </>
-                  ) : (
-                    <>
-                      <Bell size={14} />
-                      Remind
-                    </>
-                  )}
-                </button>
+                    ) : (
+                      <><Bell size={14} /> Remind</>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => markPresent(s)}
+                    disabled={markingPresent === s.id}
+                    className="px-3 py-1 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors text-xs flex items-center gap-1.5 disabled:opacity-50"
+                    title="Manually mark as present"
+                  >
+                    {markingPresent === s.id ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      '✓'
+                    )}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -407,15 +542,23 @@ export default function LiveMonitor() {
                       : "—"}
                   </p>
                   <p className="text-xs text-slate-400">
-                    {r.distanceM || 0}m from classroom
+                    {r.submissionMethod === 'manual'
+                      ? '👤 Manual'
+                      : r.submissionMethod === 'qr'
+                      ? '📷 QR'
+                      : `${r.distanceM || 0}m · 🔢 Code`}
                   </p>
                 </div>
-                <span className="badge badge-green">Present</span>
+                {r.status === 'late'
+                  ? <span className="badge badge-yellow">Late</span>
+                  : <span className="badge badge-green">Present</span>}
               </div>
             ))
           )}
         </div>
       </div>
+
+      {showQr && <QrPanel sessionId={id} onClose={() => setShowQr(false)} />}
     </div>
   );
 }

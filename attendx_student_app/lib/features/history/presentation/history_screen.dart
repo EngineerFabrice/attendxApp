@@ -5,6 +5,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'providers/history_provider.dart';
 import 'widgets/attendance_list_item.dart';
 import '../../../../shared/widgets/main_bottom_nav.dart';
+import '../../../../shared/widgets/offline_banner.dart';
 
 class HistoryScreen extends ConsumerStatefulWidget {
   const HistoryScreen({super.key});
@@ -28,7 +29,11 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       bottomNavigationBar: const MainBottomNav(currentIndex: 1),
       body: state.isLoading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
+          : Column(
+              children: [
+                if (state.isOffline)
+                  OfflineBanner(cachedAt: state.cachedAt),
+                Expanded(child: RefreshIndicator(
               onRefresh: () => notifier.loadHistory(),
               child: CustomScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -175,6 +180,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                         ),
                 ],
               ),
+            )),
+              ],
             ),
     );
   }

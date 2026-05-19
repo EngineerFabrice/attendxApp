@@ -11,9 +11,10 @@ class SocketService {
 
   sio.Socket? _socket;
 
-  final _sessionStartedListeners = <SocketCallback>[];
+  final _sessionStartedListeners   = <SocketCallback>[];
   final _attendanceUpdateListeners = <SocketCallback>[];
-  final _sessionClosedListeners = <SocketCallback>[];
+  final _sessionClosedListeners    = <SocketCallback>[];
+  final _newMessageListeners       = <SocketCallback>[];
 
   void connect(String token) {
     if (_socket?.connected == true) return;
@@ -52,12 +53,20 @@ class SocketService {
       }
     });
 
+    _socket!.on('new_message', (raw) {
+      final data = _toMap(raw);
+      for (final cb in _newMessageListeners) {
+        cb(data);
+      }
+    });
+
     _socket!.connect();
   }
 
-  void onSessionStarted(SocketCallback cb) => _sessionStartedListeners.add(cb);
-  void onAttendanceUpdate(SocketCallback cb) => _attendanceUpdateListeners.add(cb);
-  void onSessionClosed(SocketCallback cb) => _sessionClosedListeners.add(cb);
+  void onSessionStarted(SocketCallback cb)   => _sessionStartedListeners.add(cb);
+  void onAttendanceUpdate(SocketCallback cb)  => _attendanceUpdateListeners.add(cb);
+  void onSessionClosed(SocketCallback cb)     => _sessionClosedListeners.add(cb);
+  void onNewMessage(SocketCallback cb)        => _newMessageListeners.add(cb);
 
   void emitStudentCheckin(Map<String, dynamic> data) {
     _socket?.emit('student_checkin', data);
@@ -70,6 +79,7 @@ class SocketService {
     _sessionStartedListeners.clear();
     _attendanceUpdateListeners.clear();
     _sessionClosedListeners.clear();
+    _newMessageListeners.clear();
   }
 
   bool get isConnected => _socket?.connected ?? false;

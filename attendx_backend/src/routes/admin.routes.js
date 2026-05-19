@@ -24,4 +24,9 @@ router.delete('/classrooms/:id',     ctrl.deleteClassroom)
 // Analytics
 router.get   ('/analytics',          ctrl.getAnalytics)
 
+// Security engine
+router.get   ('/security/config',    ctrl.getSecurityConfig)
+router.put   ('/security/config',    ctrl.updateSecurityConfig)
+router.get   ('/security/logs',      ctrl.getSecurityLogs)
+
 module.exports = router

@@ -301,7 +301,7 @@ INSERT INTO `users` (`id`, `full_name`, `email`, `password_hash`, `role`, `reg_n
 ('a90b9218-39e4-4956-8461-1454c5b08e79', 'Patrick MUGISHA', 'patrick@stud.ur.ac.rw', '$2b$12$Tpg2P1Sqk2ZyLaiQREB4fOdCDn7Vy6OUzE9IcbxsVs8BZidJxKgDa', 'student', '223008051', NULL, 'Computer Science', 1, '2026-05-18 07:08:30', '2026-05-18 07:08:30'),
 ('a96a00af-db35-4808-8fd1-d3c8ccdfa7a8', 'Dr. Bob Nkurunziza', 'bob@ur.ac.rw', '$2b$12$kDkq7cU/VB0evNykAVZQAekciBv6.s8sJatsNouvhzPF3vqXhOyI2', 'lecturer', NULL, NULL, 'Mathematics', 1, '2026-05-18 07:08:30', '2026-05-18 07:08:30'),
 ('e1d71245-2709-4d3b-89f0-cdbd5baf18c5', 'Dr. Alice Uwimana', 'alice@ur.ac.rw', '$2b$12$kDkq7cU/VB0evNykAVZQAekciBv6.s8sJatsNouvhzPF3vqXhOyI2', 'lecturer', NULL, NULL, 'Computer Science', 1, '2026-05-18 07:08:30', '2026-05-18 07:08:30'),
-('e31712c1-31b0-4e08-bd4b-57ded44b7f1a', 'Fabrice NDAYISABA', 'fabrice@stud.ur.ac.rw', '$2b$12$Tpg2P1Sqk2ZyLaiQREB4fOdCDn7Vy6OUzE9IcbxsVs8BZidJxKgDa', 'student', '223008047', NULL, 'Computer Science', 1, '2026-05-18 07:08:30', '2026-05-18 07:08:30'),
+('e31712c1-31b0-4e08-bd4b-57ded44b7f1a', 'Fabrice NDAYISABA', 'fabrice@stud.ur.ac.rw', '1234', 'student', '223008047', NULL, 'Computer Science', 1, '2026-05-18 07:08:30', '2026-05-18 07:08:30'),
 ('fb4e8926-e40f-4afa-af86-418e041830aa', 'Marie INGABIRE', 'marie@stud.ur.ac.rw', '$2b$12$Tpg2P1Sqk2ZyLaiQREB4fOdCDn7Vy6OUzE9IcbxsVs8BZidJxKgDa', 'student', '223008048', NULL, 'Computer Science', 1, '2026-05-18 07:08:30', '2026-05-18 07:08:30'),
 ('fbb4f2cf-5882-4af4-aef0-4c2511abac82', 'Jean HAKIZIMANA', 'jean@stud.ur.ac.rw', '$2b$12$Tpg2P1Sqk2ZyLaiQREB4fOdCDn7Vy6OUzE9IcbxsVs8BZidJxKgDa', 'student', '223008049', NULL, 'Computer Science', 1, '2026-05-18 07:08:30', '2026-05-18 07:08:30');
 

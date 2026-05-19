@@ -5,6 +5,7 @@ class SecureStorage {
   static const String _refreshTokenKey = 'refresh_token';
   static const String _userKey = 'user';
   static const String _deviceFingerprintKey = 'device_fingerprint';
+  static const String _biometricsEnabledKey = 'biometrics_enabled';
 
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
@@ -33,6 +34,16 @@ class SecureStorage {
 
   Future<String?> getUser() async {
     return await _storage.read(key: _userKey);
+  }
+
+  Future<bool> getBiometricsEnabled() async {
+    final val = await _storage.read(key: _biometricsEnabledKey);
+    return val == 'true';
+  }
+
+  Future<void> setBiometricsEnabled(bool value) async {
+    await _storage.write(
+        key: _biometricsEnabledKey, value: value ? 'true' : 'false');
   }
 
   Future<String> getOrCreateDeviceFingerprint() async {

@@ -245,6 +245,37 @@ async function notifyBulkAbsenceWarnings(students) {
   return results;
 }
 
+// Notify lecturer when a student submits an appeal
+async function notifyNewAppeal({ lecturerId, studentName, courseName, appealId }) {
+  try {
+    const tokens = await getTokens([lecturerId])
+    await sendMulticast(tokens, {
+      title: 'New Attendance Appeal',
+      body: `${studentName} has appealed their absence in ${courseName}`,
+      data: { type: 'new_appeal', appealId: String(appealId), courseName },
+    })
+  } catch (e) {
+    console.warn('[FCM] notifyNewAppeal:', e.message)
+  }
+}
+
+// Notify student when their appeal is reviewed
+async function notifyAppealResult({ studentId, courseName, status, note }) {
+  try {
+    const tokens = await getTokens([studentId])
+    const approved = status === 'approved'
+    await sendMulticast(tokens, {
+      title: approved ? '✅ Appeal Approved' : '❌ Appeal Rejected',
+      body: approved
+        ? `Your appeal for ${courseName} has been approved — attendance updated.`
+        : `Your appeal for ${courseName} was rejected.${note ? ` Note: ${note}` : ''}`,
+      data: { type: 'appeal_result', status, courseName },
+    })
+  } catch (e) {
+    console.warn('[FCM] notifyAppealResult:', e.message)
+  }
+}
+
 module.exports = {
   init,
   notifySessionStarted,
@@ -252,4 +283,6 @@ module.exports = {
   notifyAttendanceConfirmed,
   notifyAbsenceWarning,
   notifyBulkAbsenceWarnings,
+  notifyNewAppeal,
+  notifyAppealResult,
 };

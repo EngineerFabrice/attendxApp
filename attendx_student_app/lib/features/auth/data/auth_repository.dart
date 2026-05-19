@@ -27,6 +27,17 @@ class AuthRepository {
     await _storage.saveUser(user.toJsonString());
   }
 
+  Future<Map<String, dynamic>> forgotPassword(String email) async {
+    final response = await _dio.post(ApiEndpoints.forgotPassword,
+        data: {'email': email});
+    return response.data['data'] as Map<String, dynamic>;
+  }
+
+  Future<void> resetPassword(String token, String newPassword) async {
+    await _dio.post(ApiEndpoints.resetPassword,
+        data: {'token': token, 'newPassword': newPassword});
+  }
+
   Future<void> logout() async {
     try {
       await _dio.post(ApiEndpoints.logout);

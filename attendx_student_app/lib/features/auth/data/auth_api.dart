@@ -12,4 +12,13 @@ class AuthApi {
   Future<Response> logout() {
     return _dio.post(ApiEndpoints.logout);
   }
+
+  Future<Response> forgotPassword(String email) {
+    return _dio.post(ApiEndpoints.forgotPassword, data: {'email': email});
+  }
+
+  Future<Response> resetPassword(String token, String newPassword) {
+    return _dio.post(ApiEndpoints.resetPassword,
+        data: {'token': token, 'newPassword': newPassword});
+  }
 }

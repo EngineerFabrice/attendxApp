@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/analytics_api.dart';
 
+enum TrendPeriod { week, month, all }
+
 class TrendDataPoint {
   final DateTime date;
   final String status;
@@ -20,6 +22,9 @@ class CourseStat {
   final double attendanceRate;
   final int totalSessions;
   final int presentSessions;
+  final int lateSessions;
+  final int absentSessions;
+  final int lateThresholdMinutes;
 
   CourseStat({
     required this.id,
@@ -28,17 +33,26 @@ class CourseStat {
     required this.attendanceRate,
     required this.totalSessions,
     required this.presentSessions,
+    this.lateSessions = 0,
+    this.absentSessions = 0,
+    this.lateThresholdMinutes = 15,
   });
 
   bool get isAtRisk => attendanceRate < 75.0;
+  // on-time = present (not late)
+  int get onTimeSessions => presentSessions;
 
   factory CourseStat.fromJson(Map<String, dynamic> j) => CourseStat(
         id: j['id'] as String,
         code: j['code'] as String,
         name: j['name'] as String,
         attendanceRate: (j['attendanceRate'] as num).toDouble(),
-        totalSessions: j['totalSessions'] as int,
-        presentSessions: j['presentSessions'] as int,
+        totalSessions: (j['totalSessions'] as num).toInt(),
+        presentSessions: (j['presentSessions'] as num).toInt(),
+        lateSessions: (j['lateSessions'] as num?)?.toInt() ?? 0,
+        absentSessions: (j['absentSessions'] as num?)?.toInt() ?? 0,
+        lateThresholdMinutes:
+            (j['lateThresholdMinutes'] as num?)?.toInt() ?? 15,
       );
 }
 
@@ -49,6 +63,7 @@ class AnalyticsState {
   final List<TrendDataPoint> trendData;
   final List<CourseStat> courseStats;
   final bool isLoading;
+  final TrendPeriod trendPeriod;
 
   AnalyticsState({
     this.overallRate,
@@ -57,10 +72,34 @@ class AnalyticsState {
     this.trendData = const [],
     this.courseStats = const [],
     this.isLoading = false,
+    this.trendPeriod = TrendPeriod.month,
   });
 
   List<CourseStat> get atRiskCourses =>
       courseStats.where((c) => c.isAtRisk).toList();
+
+  int get totalSessions =>
+      courseStats.fold(0, (s, c) => s + c.totalSessions);
+  int get totalPresent =>
+      courseStats.fold(0, (s, c) => s + c.presentSessions);
+  int get totalLate =>
+      courseStats.fold(0, (s, c) => s + c.lateSessions);
+  int get totalAbsent =>
+      courseStats.fold(0, (s, c) => s + c.absentSessions);
+
+  List<TrendDataPoint> get filteredTrendData {
+    final now = DateTime.now();
+    switch (trendPeriod) {
+      case TrendPeriod.week:
+        final cutoff = now.subtract(const Duration(days: 7));
+        return trendData.where((p) => p.date.isAfter(cutoff)).toList();
+      case TrendPeriod.month:
+        final cutoff = now.subtract(const Duration(days: 30));
+        return trendData.where((p) => p.date.isAfter(cutoff)).toList();
+      case TrendPeriod.all:
+        return trendData;
+    }
+  }
 
   AnalyticsState copyWith({
     double? overallRate,
@@ -69,6 +108,7 @@ class AnalyticsState {
     List<TrendDataPoint>? trendData,
     List<CourseStat>? courseStats,
     bool? isLoading,
+    TrendPeriod? trendPeriod,
   }) {
     return AnalyticsState(
       overallRate: overallRate ?? this.overallRate,
@@ -77,6 +117,7 @@ class AnalyticsState {
       trendData: trendData ?? this.trendData,
       courseStats: courseStats ?? this.courseStats,
       isLoading: isLoading ?? this.isLoading,
+      trendPeriod: trendPeriod ?? this.trendPeriod,
     );
   }
 }
@@ -124,6 +165,10 @@ class AnalyticsNotifier extends StateNotifier<AnalyticsState> {
     } catch (e) {
       state = state.copyWith(isLoading: false);
     }
+  }
+
+  void setTrendPeriod(TrendPeriod period) {
+    state = state.copyWith(trendPeriod: period);
   }
 
   // Count consecutive present sessions from most recent backwards

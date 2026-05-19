@@ -12,6 +12,7 @@ router.post('/login',
 )
 router.post('/logout',          authenticate, ctrl.logout)
 router.get ('/me',              authenticate, ctrl.me)
+router.put ('/profile',         authenticate, ctrl.updateProfile)
 router.post('/refresh',         ctrl.refreshToken)
 router.post('/forgot-password', authLimiter, body('email').isEmail(), ctrl.forgotPassword)
 router.post('/reset-password',

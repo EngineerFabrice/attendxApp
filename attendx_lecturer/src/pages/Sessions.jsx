@@ -1,7 +1,73 @@
 import { useEffect, useState } from 'react'
-import { Plus, Radio, Clock, CheckCircle, ExternalLink } from 'lucide-react'
+import { Plus, Radio, Clock, CheckCircle, ExternalLink, MessageSquare, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
+
+function SendMessageModal({ course, onClose }) {
+  const [content, setContent] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sent, setSent] = useState(false)
+
+  async function handleSend(e) {
+    e.preventDefault()
+    if (!content.trim()) return
+    setSending(true)
+    try {
+      await api.post('/messages/send', {
+        targetType: 'course',
+        targetId: course.id,
+        content: content.trim(),
+      })
+      setSent(true)
+      setTimeout(onClose, 1200)
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to send message')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-slate-800 text-lg">
+            Announce to {course.name}
+          </h3>
+          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg">
+            <X size={18} className="text-slate-500" />
+          </button>
+        </div>
+        {sent ? (
+          <div className="py-8 text-center text-emerald-600 font-medium">
+            ✓ Announcement sent to all enrolled students!
+          </div>
+        ) : (
+          <form onSubmit={handleSend} className="space-y-4">
+            <textarea
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              placeholder="Type your announcement…"
+              rows={4}
+              className="input resize-none"
+              required
+            />
+            <p className="text-xs text-slate-400">
+              This message will be delivered to all students enrolled in <strong>{course.code}</strong>.
+            </p>
+            <div className="flex gap-3">
+              <button type="button" onClick={onClose} className="flex-1 btn-secondary">Cancel</button>
+              <button type="submit" disabled={sending || !content.trim()} className="flex-1 btn-primary flex items-center justify-center gap-2">
+                <MessageSquare size={15} />
+                {sending ? 'Sending…' : 'Send'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function StartModal({ onClose, onStart, loading }) {
   const [courses, setCourses] = useState([])
@@ -50,6 +116,7 @@ export default function Sessions() {
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
   const [showModal, setShowModal] = useState(false)
+  const [announceTarget, setAnnounceTarget] = useState(null)
   const [error, setError] = useState(null)
   const navigate = useNavigate()
 
@@ -138,11 +205,12 @@ export default function Sessions() {
             {sessions.map(s => (
               <tr key={s.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                 <td className="td font-medium text-slate-800">{s.course.name}</td>
-                <td className="td font-mono text-slate-500">{s.code}</td>
+                <td className="td font-mono text-slate-500">{s.code || s.sessionCode}</td>
                 <td className="td text-slate-500">{s.classroom.name}</td>
                 <td className="td text-slate-500">{new Date(s.startedAt).toLocaleDateString()}</td>
                 <td className="td">
                   <span className="font-semibold text-slate-800">{s.presentCount}</span>
+                  {s.lateCount > 0 && <span className="text-amber-500 text-xs ml-1">+{s.lateCount}L</span>}
                   <span className="text-slate-400">/{s.totalStudents}</span>
                 </td>
                 <td className="td">
@@ -151,11 +219,20 @@ export default function Sessions() {
                     : <span className="badge badge-gray flex items-center gap-1 w-fit"><CheckCircle size={11} />Closed</span>}
                 </td>
                 <td className="td">
-                  {s.status === 'active' && (
-                    <button onClick={() => navigate(`/sessions/${s.id}/live`)} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors">
-                      <ExternalLink size={15} />
+                  <div className="flex items-center gap-1">
+                    {s.status === 'active' && (
+                      <button onClick={() => navigate(`/sessions/${s.id}/live`)} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Monitor">
+                        <ExternalLink size={15} />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setAnnounceTarget(s.course)}
+                      className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Send announcement"
+                    >
+                      <MessageSquare size={15} />
                     </button>
-                  )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -165,6 +242,7 @@ export default function Sessions() {
       </div>
 
       {showModal && <StartModal onClose={() => setShowModal(false)} onStart={handleStart} loading={starting} />}
+      {announceTarget && <SendMessageModal course={announceTarget} onClose={() => setAnnounceTarget(null)} />}
     </div>
   )
 }

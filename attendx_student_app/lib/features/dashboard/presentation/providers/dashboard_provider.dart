@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/dashboard_api.dart';
+import '../../../../core/database/local_database.dart';
 
 class DashboardProfile {
   final String id;
@@ -101,6 +103,7 @@ class DashboardState {
   final double? overallAttendanceRate;
   final bool isLoading;
   final String? error;
+  final bool isOffline;
 
   DashboardState({
     this.profile,
@@ -108,6 +111,7 @@ class DashboardState {
     this.overallAttendanceRate,
     this.isLoading = false,
     this.error,
+    this.isOffline = false,
   });
 
   DashboardState copyWith({
@@ -116,6 +120,7 @@ class DashboardState {
     double? overallAttendanceRate,
     bool? isLoading,
     String? error,
+    bool? isOffline,
   }) {
     return DashboardState(
       profile: profile ?? this.profile,
@@ -124,6 +129,7 @@ class DashboardState {
           overallAttendanceRate ?? this.overallAttendanceRate,
       isLoading: isLoading ?? this.isLoading,
       error: error,
+      isOffline: isOffline ?? this.isOffline,
     );
   }
 }
@@ -148,10 +154,12 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
 
       final profile = DashboardProfile.fromJson(
           data['profile'] as Map<String, dynamic>);
-
       final sessions = (data['todaySessions'] as List)
           .map((s) => TodaySession.fromJson(s as Map<String, dynamic>))
           .toList();
+
+      // Persist to cache
+      await _saveDashboardCache(data);
 
       state = DashboardState(
         profile: profile,
@@ -159,9 +167,42 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
         overallAttendanceRate:
             (data['overallAttendanceRate'] as num).toDouble(),
         isLoading: false,
+        isOffline: false,
       );
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+    } catch (_) {
+      // Try cache
+      final cached = await _loadDashboardCache();
+      if (cached != null) {
+        state = cached.copyWith(isLoading: false, isOffline: true);
+      } else {
+        state = state.copyWith(isLoading: false, isOffline: true,
+            error: 'No internet connection');
+      }
+    }
+  }
+
+  Future<void> _saveDashboardCache(Map<String, dynamic> data) async {
+    await LocalDatabase.instance.saveKv('dashboard', jsonEncode(data));
+  }
+
+  Future<DashboardState?> _loadDashboardCache() async {
+    try {
+      final raw = await LocalDatabase.instance.getKv('dashboard');
+      if (raw == null) return null;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      final profile =
+          DashboardProfile.fromJson(data['profile'] as Map<String, dynamic>);
+      final sessions = (data['todaySessions'] as List)
+          .map((s) => TodaySession.fromJson(s as Map<String, dynamic>))
+          .toList();
+      return DashboardState(
+        profile: profile,
+        todaySessions: sessions,
+        overallAttendanceRate:
+            (data['overallAttendanceRate'] as num).toDouble(),
+      );
+    } catch (_) {
+      return null;
     }
   }
 

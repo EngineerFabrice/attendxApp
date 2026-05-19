@@ -40,9 +40,23 @@ class AuthUnauthenticated extends AuthState {
 
 class AuthError extends AuthState {
   final String message;
-  
+
   const AuthError(this.message);
-  
+
   @override
   List<Object?> get props => [message];
+}
+
+// Emitted after forgotPassword succeeds — carries the reset token (dev only)
+class AuthForgotPasswordSent extends AuthState {
+  final String? devResetToken;
+  const AuthForgotPasswordSent({this.devResetToken});
+
+  @override
+  List<Object?> get props => [devResetToken];
+}
+
+// Emitted after resetPassword succeeds
+class AuthPasswordResetSuccess extends AuthState {
+  const AuthPasswordResetSuccess();
 }

@@ -8,6 +8,7 @@ import Sessions from './pages/Sessions'
 import LiveMonitor from './pages/LiveMonitor'
 import Students from './pages/Students'
 import Reports from './pages/Reports'
+import Appeals from './pages/Appeals'
 
 function Protected({ children }) {
   const { user, loading } = useAuth()
@@ -27,7 +28,8 @@ export default function App() {
             <Route path="sessions" element={<Sessions />} />
             <Route path="sessions/:id/live" element={<LiveMonitor />} />
             <Route path="students" element={<Students />} />
-            <Route path="reports" element={<Reports />} />
+            <Route path="reports"  element={<Reports />} />
+            <Route path="appeals"  element={<Appeals />} />
           </Route>
         </Routes>
       </BrowserRouter>

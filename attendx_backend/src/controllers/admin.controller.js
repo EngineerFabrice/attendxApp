@@ -54,7 +54,7 @@ async function deleteUser(req, res, next) {
 async function getCourses(req, res, next) {
   try {
     const [rows] = await db.query(
-      `SELECT c.id, c.code, c.name, c.credits, c.department,
+      `SELECT c.id, c.code, c.name, c.credits, c.department, c.late_threshold_minutes,
               u.id AS lec_id, u.full_name AS lec_name,
               (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id) AS students
          FROM courses c
@@ -64,6 +64,7 @@ async function getCourses(req, res, next) {
     )
     res.json(success(rows.map(r => ({
       id: r.id, code: r.code, name: r.name, credits: r.credits, department: r.department,
+      lateThresholdMinutes: r.late_threshold_minutes,
       students: Number(r.students),
       lecturer: r.lec_id ? { id: r.lec_id, fullName: r.lec_name } : null,
     }))))
@@ -72,22 +73,26 @@ async function getCourses(req, res, next) {
 
 async function createCourse(req, res, next) {
   try {
-    const { code, name, credits, department, lecturerId } = req.body
+    const { code, name, credits, department, lecturerId, lateThresholdMinutes = 15 } = req.body
     const id = randomUUID()
     await db.query(
-      'INSERT INTO courses (id, code, name, credits, department, lecturer_id) VALUES (?,?,?,?,?,?)',
-      [id, code, name, credits || 3, department || null, lecturerId || null]
+      'INSERT INTO courses (id, code, name, credits, department, lecturer_id, late_threshold_minutes) VALUES (?,?,?,?,?,?,?)',
+      [id, code, name, credits || 3, department || null, lecturerId || null, lateThresholdMinutes]
     )
-    res.status(201).json(success({ id, code, name, credits, department, lecturer: null, students: 0 }))
+    res.status(201).json(success({ id, code, name, credits, department, lateThresholdMinutes, lecturer: null, students: 0 }))
   } catch (err) { next(err) }
 }
 
 async function updateCourse(req, res, next) {
   try {
-    const { code, name, credits, department, lecturerId } = req.body
+    const { code, name, credits, department, lecturerId, lateThresholdMinutes } = req.body
     await db.query(
-      'UPDATE courses SET code=?, name=?, credits=?, department=?, lecturer_id=? WHERE id=?',
-      [code, name, credits, department, lecturerId || null, req.params.id]
+      `UPDATE courses SET code=?, name=?, credits=?, department=?, lecturer_id=?
+         ${lateThresholdMinutes !== undefined ? ', late_threshold_minutes=?' : ''}
+       WHERE id=?`,
+      lateThresholdMinutes !== undefined
+        ? [code, name, credits, department, lecturerId || null, lateThresholdMinutes, req.params.id]
+        : [code, name, credits, department, lecturerId || null, req.params.id]
     )
     res.json(success({ id: req.params.id, ...req.body }))
   } catch (err) { next(err) }
@@ -199,9 +204,85 @@ async function bulkCreateUsers(req, res, next) {
   } catch (err) { next(err) }
 }
 
+// ── Security Config ───────────────────────────────────────────────────────────
+async function getSecurityConfig(req, res, next) {
+  try {
+    const secSvc = require('../services/security.service')
+    const cfg = await secSvc.loadConfig()
+    res.json(success(cfg))
+  } catch (err) { next(err) }
+}
+
+async function updateSecurityConfig(req, res, next) {
+  try {
+    const { weights, thresholds, blockLevel, warnLevel } = req.body
+    const updates = []
+    if (weights)    updates.push(['weights',    JSON.stringify(weights)])
+    if (thresholds) updates.push(['thresholds', JSON.stringify(thresholds)])
+    if (blockLevel) updates.push(['blockLevel', JSON.stringify(blockLevel)])
+    if (warnLevel)  updates.push(['warnLevel',  JSON.stringify(warnLevel)])
+
+    for (const [key, val] of updates) {
+      await db.query(
+        'INSERT INTO security_config (config_key, config_value) VALUES (?,?) ON DUPLICATE KEY UPDATE config_value=?',
+        [key, val, val]
+      )
+    }
+
+    // Bust the cache
+    const secSvc = require('../services/security.service')
+    const cfg = await secSvc.loadConfig()
+    res.json(success(cfg))
+  } catch (err) { next(err) }
+}
+
+// ── Security Logs ─────────────────────────────────────────────────────────────
+async function getSecurityLogs(req, res, next) {
+  try {
+    const { level, page = 1, limit = 50 } = req.query
+    const offset = (Number(page) - 1) * Number(limit)
+
+    let where = '1=1'
+    const params = []
+    if (level) { where += ' AND sl.risk_level = ?'; params.push(level) }
+
+    const [rows] = await db.query(
+      `SELECT sl.id, sl.risk_level, sl.risk_score, sl.flags, sl.ip_address,
+              sl.device_model, sl.platform, sl.action_taken, sl.created_at,
+              u.full_name AS studentName, u.email AS studentEmail, u.reg_number AS regNumber,
+              s.session_code, c.name AS courseName
+         FROM security_logs sl
+         JOIN users u ON u.id = sl.student_id
+         LEFT JOIN attendance_sessions s ON s.id = sl.session_id
+         LEFT JOIN courses c ON c.id = s.course_id
+        WHERE ${where}
+        ORDER BY sl.created_at DESC
+        LIMIT ? OFFSET ?`,
+      [...params, Number(limit), offset]
+    )
+
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM security_logs sl WHERE ${where}`, params
+    )
+
+    res.json(success(
+      rows.map(r => ({
+        id: r.id, riskLevel: r.risk_level, riskScore: r.risk_score,
+        flags: r.flags, ipAddress: r.ip_address,
+        deviceModel: r.device_model, platform: r.platform,
+        actionTaken: r.action_taken, createdAt: r.created_at,
+        student: { name: r.studentName, email: r.studentEmail, regNumber: r.regNumber },
+        session: r.session_code ? { code: r.session_code, course: r.courseName } : null,
+      })),
+      { page: Number(page), limit: Number(limit), total: Number(total) }
+    ))
+  } catch (err) { next(err) }
+}
+
 module.exports = {
   getUsers, createUser, updateUser, deleteUser, bulkCreateUsers,
   getCourses, createCourse, updateCourse,
   getClassrooms, createClassroom, deleteClassroom,
   getAnalytics,
+  getSecurityConfig, updateSecurityConfig, getSecurityLogs,
 }

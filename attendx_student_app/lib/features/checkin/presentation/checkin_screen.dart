@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'providers/checkin_provider.dart';
 import '../../../core/utils/haversine.dart';
+import '../../../core/services/biometric_service.dart';
+import '../../../core/services/security_service.dart';
+import 'fraud_warning_dialog.dart';
 
 class CheckinScreen extends ConsumerStatefulWidget {
   const CheckinScreen({super.key});
@@ -104,33 +107,112 @@ class _CheckinScreenState extends ConsumerState<CheckinScreen> {
       return;
     }
 
-    setState(() => _isCheckingIn = true);
+    // Biometric gate — only if the user has it enabled
+    final biometricEnabled = await BiometricService.isEnabled();
+    if (biometricEnabled) {
+      final passed = await BiometricService.authenticate(
+        reason: 'Confirm your identity to record attendance',
+      );
+      if (!passed) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Biometric verification failed. Check-in cancelled.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+
+    // Run security scan
+    setState(() { _isCheckingIn = true; });
+    final secCtx = await SecurityService.scan();
+
+    if (!mounted) return;
+
+    // Evaluate client-side before even hitting the API
+    if (secCtx.hasAnyFlag) {
+      // Map flag count to approximate risk for pre-flight dialog
+      final estimatedHigh = secCtx.activeFlags.length >= 2 ||
+          secCtx.isMockGps || secCtx.isRooted;
+      final level = estimatedHigh
+          ? FraudRiskLevel.high
+          : FraudRiskLevel.medium;
+
+      final proceed = await FraudWarningDialog.show(
+        context,
+        level: level,
+        flags: secCtx.activeFlags,
+        score: secCtx.activeFlags.length * 35,
+      );
+      if (!proceed) {
+        setState(() => _isCheckingIn = false);
+        return;
+      }
+    }
 
     final result = await ref.read(checkinProvider.notifier).checkIn(
       sessionId: sessionId,
       latitude: _currentPosition!.latitude,
       longitude: _currentPosition!.longitude,
       courseName: courseName,
+      securityContext: secCtx,
     );
 
     setState(() => _isCheckingIn = false);
     if (!mounted) return;
 
     if (result) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Check-in successful!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      final checkinState = ref.read(checkinProvider);
+      if (checkinState.wasQueued) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                '📶 No internet — check-in saved and will sync when connected.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      } else if (checkinState.lastSecurityResult?.warned == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                '✓ Attendance recorded. Security flags were logged for review.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      } else {
+        // Show late or on-time message from the server response
+        final msg = checkinState.lateMessage ?? 'Check-in successful!';
+        final isLate = checkinState.lateMessage != null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: isLate ? Colors.orange.shade700 : Colors.green,
+          ),
+        );
+      }
       Navigator.pop(context, true);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Check-in failed. Please try again.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      final errMsg = ref.read(checkinProvider).error;
+      final isBlocked = errMsg?.toLowerCase().contains('blocked') ?? false;
+      if (isBlocked) {
+        await FraudWarningDialog.show(
+          context,
+          level: FraudRiskLevel.high,
+          flags: secCtx.activeFlags,
+          score: secCtx.activeFlags.length * 35,
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Check-in failed. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 

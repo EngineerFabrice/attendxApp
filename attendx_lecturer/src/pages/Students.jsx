@@ -1,6 +1,75 @@
 import { useEffect, useState } from 'react'
-import { Plus, AlertTriangle, Search } from 'lucide-react'
+import { Plus, AlertTriangle, Search, MessageSquare, X } from 'lucide-react'
 import api from '../services/api'
+
+function DirectMessageModal({ student, onClose }) {
+  const [content, setContent] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sent, setSent] = useState(false)
+
+  async function handleSend(e) {
+    e.preventDefault()
+    if (!content.trim()) return
+    setSending(true)
+    try {
+      await api.post('/messages/send', {
+        targetType: 'student',
+        targetId: student.id,
+        content: content.trim(),
+      })
+      setSent(true)
+      setTimeout(onClose, 1200)
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to send message')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-slate-800 text-lg">
+            Message {student.fullName}
+          </h3>
+          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg">
+            <X size={18} className="text-slate-500" />
+          </button>
+        </div>
+        {sent ? (
+          <div className="py-8 text-center text-emerald-600 font-medium">
+            ✓ Message sent!
+          </div>
+        ) : (
+          <form onSubmit={handleSend} className="space-y-4">
+            <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl text-sm text-slate-600">
+              <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs">
+                {student.fullName[0]}
+              </div>
+              <span>{student.fullName} · {student.regNumber}</span>
+            </div>
+            <textarea
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              placeholder="Type your message…"
+              rows={4}
+              className="input resize-none"
+              required
+            />
+            <div className="flex gap-3">
+              <button type="button" onClick={onClose} className="flex-1 btn-secondary">Cancel</button>
+              <button type="submit" disabled={sending || !content.trim()} className="flex-1 btn-primary flex items-center justify-center gap-2">
+                <MessageSquare size={15} />
+                {sending ? 'Sending…' : 'Send'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function Modal({ onClose, onSubmit, loading }) {
   const [form, setForm] = useState({ fullName: '', email: '', regNumber: '', course: 'CS301' })
@@ -32,6 +101,7 @@ export default function Students() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showModal, setShowModal] = useState(false)
+  const [messageTarget, setMessageTarget] = useState(null)
   const [search, setSearch] = useState('')
   const [showAtRisk, setShowAtRisk] = useState(false)
   const [error, setError] = useState(null)
@@ -105,6 +175,7 @@ export default function Students() {
               <th className="th">Course</th>
               <th className="th">Attendance Rate</th>
               <th className="th">Status</th>
+              <th className="th">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -136,6 +207,15 @@ export default function Students() {
                     ? <span className="badge badge-red flex items-center gap-1 w-fit"><AlertTriangle size={11} />At Risk</span>
                     : <span className="badge badge-green">Good Standing</span>}
                 </td>
+                <td className="td">
+                  <button
+                    onClick={() => setMessageTarget(s)}
+                    className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="Send message"
+                  >
+                    <MessageSquare size={15} />
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -144,6 +224,7 @@ export default function Students() {
       </div>
 
       {showModal && <Modal onClose={() => setShowModal(false)} onSubmit={handleAdd} loading={saving} />}
+      {messageTarget && <DirectMessageModal student={messageTarget} onClose={() => setMessageTarget(null)} />}
     </div>
   )
 }

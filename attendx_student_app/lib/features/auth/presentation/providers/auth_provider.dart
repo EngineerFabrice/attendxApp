@@ -40,6 +40,31 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = const AuthUnauthenticated();
   }
 
+  Future<void> forgotPassword(String email) async {
+    state = const AuthLoading();
+    try {
+      final data = await _repository.forgotPassword(email);
+      final devToken = data['resetToken'] as String?;
+      state = AuthForgotPasswordSent(devResetToken: devToken);
+    } catch (_) {
+      state = const AuthError('Failed to send reset code. Please try again.');
+    }
+  }
+
+  Future<void> resetPassword(String token, String newPassword) async {
+    state = const AuthLoading();
+    try {
+      await _repository.resetPassword(token, newPassword);
+      state = const AuthPasswordResetSuccess();
+    } catch (_) {
+      state = const AuthError('Invalid or expired reset code. Please try again.');
+    }
+  }
+
+  void clearError() {
+    if (state is AuthError) state = const AuthUnauthenticated();
+  }
+
   Future<void> checkAuthStatus() async {
     state = const AuthLoading();
     final user = await _repository.getCurrentUser();

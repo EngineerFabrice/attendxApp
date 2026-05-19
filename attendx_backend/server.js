@@ -31,7 +31,9 @@ const authRoutes = require("./src/routes/auth.routes");
 const adminRoutes = require("./src/routes/admin.routes");
 const lecturerRoutes = require("./src/routes/lecturer.routes");
 const studentRoutes = require("./src/routes/student.routes");
-const warningRoutes = require("./src/routes/warningRoutes");
+const warningRoutes  = require("./src/routes/warningRoutes");
+const appealRoutes   = require("./src/routes/appeal.routes");
+const messageRoutes  = require("./src/routes/message.routes");
 
 const app = express();
 const server = http.createServer(app);
@@ -113,6 +115,8 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/lecturer", lecturerRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api/notifications", warningRoutes);
+app.use("/api/appeals",       appealRoutes);
+app.use("/api/messages",      messageRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
