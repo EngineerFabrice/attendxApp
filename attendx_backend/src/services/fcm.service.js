@@ -1,7 +1,12 @@
 const path = require("path");
-const fs = require("fs");
-const db = require("../config/database");
+const fs   = require("fs");
+const db   = require("../config/database");
 const { v4: uuidv4 } = require("uuid");
+
+// Configurable via env vars
+const FCM_BATCH_SIZE       = Number(process.env.FCM_BATCH_SIZE)        || 500
+const FCM_CHANNEL_ID       = process.env.FCM_CHANNEL_ID                || "attendx_main"
+const BULK_WARNING_DELAY_MS = Number(process.env.BULK_WARNING_DELAY_MS) || 500
 
 let messaging = null; // firebase-admin messaging instance
 
@@ -79,10 +84,10 @@ async function sendMulticast(tokens, { title, body, data = {} }) {
   const m = init();
   if (!m) return; // FCM not configured — skip silently
 
-  // FCM sendEachForMulticast accepts max 500 tokens per call
+  // FCM sendEachForMulticast max batch size (configurable, hard max is 500)
   const chunks = [];
-  for (let i = 0; i < tokens.length; i += 500)
-    chunks.push(tokens.slice(i, i + 500));
+  for (let i = 0; i < tokens.length; i += FCM_BATCH_SIZE)
+    chunks.push(tokens.slice(i, i + FCM_BATCH_SIZE));
 
   const stringData = {};
   for (const [k, v] of Object.entries(data)) stringData[k] = String(v);
@@ -95,7 +100,7 @@ async function sendMulticast(tokens, { title, body, data = {} }) {
         data: stringData,
         android: {
           priority: "high",
-          notification: { channelId: "attendx_main", sound: "default" },
+          notification: { channelId: FCM_CHANNEL_ID, sound: "default" },
         },
         apns: {
           payload: { aps: { sound: "default", badge: 1 } },
@@ -234,8 +239,8 @@ async function notifyBulkAbsenceWarnings(students) {
       });
       results.success++;
 
-      // Add delay to avoid overwhelming the system
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Throttle bulk sends to avoid overwhelming FCM
+      await new Promise((resolve) => setTimeout(resolve, BULK_WARNING_DELAY_MS));
     } catch (e) {
       console.warn(`[FCM] Failed to send to ${student.fullName}:`, e.message);
       results.failed++;

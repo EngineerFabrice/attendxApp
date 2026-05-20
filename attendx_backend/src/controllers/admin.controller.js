@@ -137,7 +137,9 @@ async function getAnalytics(req, res, next) {
       `SELECT
         (SELECT COUNT(*) FROM users WHERE is_active=1 AND role != 'admin') AS totalUsers,
         (SELECT COUNT(*) FROM courses WHERE is_active=1)                   AS totalCourses,
-        (SELECT COUNT(*) FROM attendance_sessions WHERE status='active')   AS activeSessions`
+        (SELECT COUNT(*) FROM attendance_sessions WHERE status='active')   AS activeSessions,
+        (SELECT ROUND(100 * SUM(status='present') / NULLIF(COUNT(*),0), 1)
+           FROM attendance_records)                                        AS overallAttendanceRate`
     )
 
     const [atRisk] = await db.query(
@@ -167,7 +169,7 @@ async function getAnalytics(req, res, next) {
       totalUsers: Number(totals.totalUsers),
       totalCourses: Number(totals.totalCourses),
       activeSessions: Number(totals.activeSessions),
-      overallAttendanceRate: 82.4,
+      overallAttendanceRate: Number(totals.overallAttendanceRate ?? 0),
       trend: trend.map(t => ({ week: t.week, rate: Number(t.rate) })),
       atRisk: atRisk.map(r => ({ student: r.student, course: r.course, rate: Number(r.rate) })),
     }))

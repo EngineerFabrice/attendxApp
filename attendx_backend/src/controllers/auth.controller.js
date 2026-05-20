@@ -1,9 +1,10 @@
-﻿const bcrypt  = require('bcryptjs')
+﻿const bcrypt       = require('bcryptjs')
 const { randomUUID } = require('crypto')
-const db      = require('../config/database')
+const db           = require('../config/database')
 const { generateTokens, signAccess } = require('../utils/jwt')
 const { success, error } = require('../utils/response')
 const { validationResult } = require('express-validator')
+const emailService = require('../services/email.service')
 
 async function login(req, res, next) {
   try {
@@ -81,11 +82,16 @@ async function forgotPassword(req, res, next) {
       [randomUUID(), userId, token, expiresAt]
     )
 
-    // Production: send email with link. Dev: return token directly.
+    // Send email (non-blocking — always return same response regardless of email result)
+    emailService.sendPasswordReset(email, token).catch(err =>
+      console.warn('[Auth] Failed to send reset email:', err.message)
+    )
+
+    // In dev mode also return the token so you can test without real SMTP
     const isDev = process.env.NODE_ENV !== 'production'
     res.json(success({
       message: 'If that email exists a reset code was sent.',
-      ...(isDev && { resetToken: token, note: 'Returned in dev mode only — send via email in production' }),
+      ...(isDev && { resetToken: token, note: 'Dev mode only — not returned in production' }),
     }))
   } catch (err) { next(err) }
 }

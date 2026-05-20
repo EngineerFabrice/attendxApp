@@ -1,24 +1,28 @@
 const bcrypt = require("bcryptjs");
 const { randomUUID, createHmac } = require("crypto");
-const db = require("../config/database");
+const db     = require("../config/database");
 const { success, error } = require("../utils/response");
-const fcm = require("../services/fcm.service");
-const admin = require("firebase-admin");
+const notify = require("../services/notification.service");
+const fcm    = require("../services/fcm.service");   // kept for QR/session live events
+const admin  = require("firebase-admin");
 
 function generateCode() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
-// 30-second rotating QR token signed with JWT_SECRET
+// Rotating QR token — window size configurable via QR_TOKEN_WINDOW_SECONDS (default 30s)
+const QR_WINDOW_SECONDS = Number(process.env.QR_TOKEN_WINDOW_SECONDS) || 30
+const SESSION_TTL_MS    = (Number(process.env.SESSION_TTL_MINUTES) || 90) * 60 * 1000
+
 function buildQrToken(sessionId) {
-  const window = Math.floor(Date.now() / 30000);
-  const secret = process.env.JWT_SECRET || "dev_secret";
-  const token = createHmac("sha256", secret)
+  const window = Math.floor(Date.now() / (QR_WINDOW_SECONDS * 1000))
+  const secret = process.env.JWT_SECRET   // jwt.js already validates this is set
+  const token  = createHmac("sha256", secret)
     .update(`${sessionId}|${window}`)
     .digest("hex")
-    .slice(0, 16);
-  const secondsIntoWindow = Math.floor((Date.now() / 1000) % 30);
-  return { token, window, expiresInSeconds: 30 - secondsIntoWindow };
+    .slice(0, 16)
+  const secondsIntoWindow = Math.floor((Date.now() / 1000) % QR_WINDOW_SECONDS)
+  return { token, window, expiresInSeconds: QR_WINDOW_SECONDS - secondsIntoWindow }
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -140,7 +144,7 @@ async function startSession(req, res, next) {
 
     const id = randomUUID();
     const code = generateCode();
-    const expiresAt = new Date(Date.now() + 90 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
 
     await db.query(
       `INSERT INTO attendance_sessions (id, session_code, course_id, classroom_id, lecturer_id, expires_at)
@@ -173,13 +177,14 @@ async function startSession(req, res, next) {
       });
     }
 
-    // Push notification — enrolled students who are offline will still be alerted
-    fcm.notifySessionStarted({
-      sessionId: id,
+    // Notify all enrolled students — push + email via unified notification service
+    notify.notifySessionStarted({
+      sessionId:   id,
       courseId,
-      courseName: s.cName,
-      room: s.rName,
+      courseName:  s.cName,
+      roomName:    s.rName,
       sessionCode: code,
+      expiresAt:   s.expires_at,
     });
 
     res.status(201).json(
@@ -262,8 +267,8 @@ async function closeSession(req, res, next) {
       });
     }
 
-    // Push absence warnings to students who missed the session
-    fcm.notifyAbsentStudents({ sessionId: id, courseId });
+    // Notify absent students — push + email + log warnings via unified service
+    notify.notifyAbsentStudents({ sessionId: id, courseId });
 
     res.json(success({ absentMarked: notCheckedIn.length }));
   } catch (err) {

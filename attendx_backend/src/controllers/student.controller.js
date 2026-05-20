@@ -60,9 +60,10 @@ async function getDashboard(req, res, next) {
 }
 
 // ── QR token validator ───────────────────────────────────────────────────────
+const QR_WINDOW_SECONDS = Number(process.env.QR_TOKEN_WINDOW_SECONDS) || 30
 function validateQrToken(sessionId, token, window) {
-  const secret = process.env.JWT_SECRET || 'dev_secret'
-  const now = Math.floor(Date.now() / 30000)
+  const secret = process.env.JWT_SECRET  // validated at startup by jwt.js
+  const now = Math.floor(Date.now() / (QR_WINDOW_SECONDS * 1000))
   for (const w of [now, now - 1]) {
     if (Number(window) === w) {
       const expected = createHmac('sha256', secret)
@@ -181,7 +182,9 @@ async function checkIn(req, res, next) {
     }
 
     // Determine attendance status — late if check-in is past the threshold
-    const lateThresholdMs = (session.late_threshold_minutes ?? 15) * 60 * 1000
+    // Per-course DB value takes priority; env var is the system-wide fallback
+    const DEFAULT_LATE_MINUTES = Number(process.env.LATE_THRESHOLD_MINUTES) || 15
+    const lateThresholdMs = (session.late_threshold_minutes ?? DEFAULT_LATE_MINUTES) * 60 * 1000
     const attendanceStatus =
       (new Date() - new Date(session.started_at)) > lateThresholdMs ? 'late' : 'present'
 

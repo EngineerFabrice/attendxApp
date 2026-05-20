@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Download, AlertTriangle, Bell, Loader2 } from "lucide-react";
+import { Download, FileText, AlertTriangle, Bell, Loader2 } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -20,85 +20,48 @@ export default function Reports() {
   useEffect(() => {
     Promise.all([api.get("/lecturer/students"), api.get("/lecturer/sessions")])
       .then(([s, sess]) => {
-        console.log("Students API Response:", s.data);
-        console.log("Response structure:", {
-          hasData: !!s.data,
-          dataIsArray: Array.isArray(s.data),
-          dataDataIsArray: Array.isArray(s.data?.data),
-          firstItem: s.data?.data?.[0],
-        });
-
-        // Check if data is directly in s.data or s.data.data
         let studentsRaw = [];
         if (Array.isArray(s.data)) {
           studentsRaw = s.data;
-          console.log("Data is directly in response array");
         } else if (s.data?.data && Array.isArray(s.data.data)) {
           studentsRaw = s.data.data;
-          console.log("Data is in response.data.data array");
         } else if (s.data?.students && Array.isArray(s.data.students)) {
           studentsRaw = s.data.students;
-          console.log("Data is in response.data.students array");
         }
 
-        console.log("First raw student:", studentsRaw[0]);
-        console.log(
-          "Available fields in first student:",
-          studentsRaw[0] ? Object.keys(studentsRaw[0]) : [],
-        );
+        const normalizedStudents = studentsRaw.map((student) => ({
+          id: student.id || student.student_id,
+          fullName: student.fullName || student.full_name,
+          regNumber: student.regNumber || student.reg_number,
+          course: student.course || student.course_name || student.courseName,
+          attendanceRate: student.attendanceRate || student.attendance_rate || 0,
+          email: student.email,
+          phone: student.phone,
+        }));
 
-        // Normalize student data
-        const normalizedStudents = studentsRaw.map((student) => {
-          console.log("Processing student:", student);
-          return {
-            id: student.id || student.student_id,
-            fullName: student.fullName || student.full_name,
-            regNumber: student.regNumber || student.reg_number,
-            course: student.course || student.course_name || student.courseName,
-            attendanceRate:
-              student.attendanceRate || student.attendance_rate || 0,
-            email: student.email,
-            phone: student.phone,
-          };
-        });
-
-        console.log("Normalized students:", normalizedStudents);
         setStudents(normalizedStudents);
         setSessions(sess.data?.data || []);
         setLoading(false);
       })
-      .catch((error) => {
-        console.error("API Error:", error);
-        setLoading(false);
-      });
+      .catch(() => setLoading(false));
   }, []);
 
   const handleSendWarning = async (student) => {
-    console.log("Student data being sent:", student);
-
     try {
       setSendingWarning(student.id);
 
-      // Validate required fields
       if (!student.id) {
-        console.error("Missing student ID:", student);
         alert(`Cannot send warning: Missing student ID`);
         return;
       }
 
       if (!student.attendanceRate && student.attendanceRate !== 0) {
-        console.error("Missing attendance rate:", student);
-        alert(
-          `Cannot send warning: Missing attendance rate for ${student.fullName}`,
-        );
+        alert(`Cannot send warning: Missing attendance rate for ${student.fullName}`);
         return;
       }
 
       if (!student.course) {
-        console.error("Missing course name:", student);
-        alert(
-          `Cannot send warning: Missing course information for ${student.fullName}`,
-        );
+        alert(`Cannot send warning: Missing course information for ${student.fullName}`);
         return;
       }
 
@@ -202,6 +165,46 @@ export default function Reports() {
         )
       : 0;
 
+  function exportPDF() {
+    const html = `<!DOCTYPE html><html><head><title>Attendance Report</title>
+<style>
+  body{font-family:Arial,sans-serif;padding:24px;color:#1e293b}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:#64748b;font-size:13px;margin-bottom:20px}
+  .stats{display:flex;gap:16px;margin-bottom:24px}
+  .stat{border:1px solid #e2e8f0;padding:12px 20px;border-radius:8px;min-width:140px}
+  .stat-label{font-size:12px;color:#64748b}
+  .stat-val{font-size:24px;font-weight:700;margin-top:2px}
+  .red{color:#dc2626} .green{color:#059669}
+  h2{font-size:14px;font-weight:600;margin:20px 0 8px;border-bottom:1px solid #e2e8f0;padding-bottom:4px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;padding:7px 10px;border-bottom:2px solid #e2e8f0;color:#64748b;font-weight:600}
+  td{padding:7px 10px;border-bottom:1px solid #f1f5f9}
+  @media print{body{padding:0}}
+</style></head><body>
+<h1>Attendance Report</h1>
+<div class="sub">Generated on ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</div>
+<div class="stats">
+  <div class="stat"><div class="stat-label">Avg. Session Attendance</div><div class="stat-val">${avgAttendance}%</div></div>
+  <div class="stat"><div class="stat-label">Total Sessions</div><div class="stat-val">${closedSessions.length}</div></div>
+  <div class="stat"><div class="stat-label">At-Risk Students</div><div class="stat-val red">${atRisk.length}</div></div>
+</div>
+<h2>Student Attendance</h2>
+<table><thead><tr><th>Student</th><th>Reg Number</th><th>Course</th><th>Rate</th><th>Status</th></tr></thead><tbody>
+${students.map((s) => `<tr><td>${s.fullName || "-"}</td><td>${s.regNumber || "-"}</td><td>${s.course || "-"}</td><td class="${(s.attendanceRate || 0) >= 75 ? "green" : "red"}">${s.attendanceRate || 0}%</td><td>${(s.attendanceRate || 0) >= 75 ? "Good" : "At Risk"}</td></tr>`).join("")}
+</tbody></table>
+<h2>Session History</h2>
+<table><thead><tr><th>Course</th><th>Date</th><th>Present / Total</th><th>Rate</th></tr></thead><tbody>
+${closedSessions.map((s) => { const r = Math.round(((s.presentCount || s.present_count || 0) / (s.totalStudents || s.total_students || 1)) * 100); return `<tr><td>${s.course?.name || s.course_name || "Unknown"}</td><td>${new Date(s.startedAt || s.started_at).toLocaleDateString()}</td><td>${s.presentCount || s.present_count || 0} / ${s.totalStudents || s.total_students || 0}</td><td class="${r >= 75 ? "green" : "red"}">${r}%</td></tr>`; }).join("")}
+</tbody></table>
+</body></html>`;
+    const w = window.open("", "_blank", "width=900,height=650");
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.print();
+  }
+
   if (loading)
     return (
       <div className="flex justify-center py-20 text-slate-400">Loading…</div>
@@ -236,6 +239,12 @@ export default function Reports() {
               )}
             </button>
           )}
+          <button
+            onClick={exportPDF}
+            className="px-4 py-2 border border-slate-200 bg-white text-slate-700 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-2"
+          >
+            <FileText size={16} /> Export PDF
+          </button>
           <button
             onClick={exportCSV}
             className="btn-primary flex items-center gap-2"

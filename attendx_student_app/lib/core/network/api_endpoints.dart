@@ -23,4 +23,5 @@ class ApiEndpoints {
   // Profile
   static const String profile        = '/auth/me';
   static const String updateProfile  = '/auth/profile';
+  static const String notifPrefs     = '/student/notification-preferences';
 }

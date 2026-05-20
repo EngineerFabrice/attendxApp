@@ -5,30 +5,11 @@ const fcmService = require("../services/fcm.service");
 // Initialize FCM on server start
 fcmService.init();
 
-// Middleware to log all requests to this route
-router.use((req, res, next) => {
-  console.log(`[WARNING ROUTE] ${req.method} ${req.path}`);
-  console.log("[WARNING ROUTE] Headers:", req.headers);
-  console.log("[WARNING ROUTE] Body:", req.body);
-  next();
-});
-
 // Send warning to a single student
 router.post("/send-warning", async (req, res) => {
   try {
-    console.log("[WARNING] Received request body:", req.body);
-    console.log("[WARNING] Content-Type:", req.headers["content-type"]);
-
     const { studentId, studentName, attendanceRate, courseName } = req.body;
 
-    console.log("[WARNING] Extracted values:", {
-      studentId,
-      studentName,
-      attendanceRate,
-      courseName,
-    });
-
-    // Validate required fields with detailed errors
     const missingFields = [];
     if (!studentId) missingFields.push("studentId");
     if (attendanceRate === undefined || attendanceRate === null)
@@ -38,8 +19,6 @@ router.post("/send-warning", async (req, res) => {
     if (missingFields.length > 0) {
       return res.status(400).json({
         error: `Missing required fields: ${missingFields.join(", ")}`,
-        receivedBody: req.body,
-        contentType: req.headers["content-type"],
       });
     }
 

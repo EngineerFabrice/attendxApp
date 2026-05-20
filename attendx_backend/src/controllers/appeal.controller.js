@@ -1,6 +1,6 @@
 const { randomUUID } = require('crypto')
-const db  = require('../config/database')
-const fcm = require('../services/fcm.service')
+const db     = require('../config/database')
+const notify = require('../services/notification.service')
 const { success, error } = require('../utils/response')
 
 // ── Student: submit an appeal ─────────────────────────────────────────────────
@@ -52,13 +52,13 @@ async function submitAppeal(req, res, next) {
       [id, recordId, studentId, record.session_id, record.course_id, reason.trim()]
     )
 
-    // Notify lecturer via FCM
+    // Notify lecturer via FCM + email
     if (record.lecturer_id) {
-      fcm.notifyNewAppeal({
-        lecturerId: record.lecturer_id,
+      notify.notifyNewAppeal({
+        lecturerId:  record.lecturer_id,
         studentName: record.studentName,
-        courseName: record.courseName,
-        appealId: id,
+        courseName:  record.courseName,
+        appealId:    id,
       })
     }
 
@@ -193,12 +193,12 @@ async function reviewAppeal(req, res, next) {
       )
     }
 
-    // Notify student
-    fcm.notifyAppealResult({
-      studentId: appeal.student_id,
+    // Notify student via FCM + email
+    notify.notifyAppealResult({
+      studentId:  appeal.student_id,
       courseName: appeal.courseName,
-      status: action,
-      note: note || '',
+      status:     action,
+      reviewNote: note || '',
     })
 
     // Emit socket to student

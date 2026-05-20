@@ -1,12 +1,21 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// ── Load signing credentials from key.properties ──────────────────────────────
+val keyPropertiesFile = rootProject.file("key.properties")
+val keyProperties = Properties()
+if (keyPropertiesFile.exists()) {
+    keyProperties.load(FileInputStream(keyPropertiesFile))
+}
+
 android {
-    namespace = "com.example.attendx_student_app"
+    namespace = "com.attendx.student"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -20,22 +29,35 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    // ── Signing configs ───────────────────────────────────────────────────────
+    signingConfigs {
+        create("release") {
+            if (keyPropertiesFile.exists()) {
+                keyAlias      = keyProperties["keyAlias"]      as String
+                keyPassword   = keyProperties["keyPassword"]   as String
+                storeFile     = rootProject.file("app/${keyProperties["storeFile"]}")
+                storePassword = keyProperties["storePassword"] as String
+            }
+        }
+    }
+
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.attendx_student_app"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 23  // local_auth (biometrics) requires API 23+
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        applicationId  = "com.attendx.student"
+        minSdk         = flutter.minSdkVersion
+        targetSdk      = flutter.targetSdkVersion
+        versionCode    = flutter.versionCode
+        versionName    = flutter.versionName
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            signingConfig     = signingConfigs.getByName("release")
+            isMinifyEnabled   = false   // enable for Play Store; off for device testing
+            isShrinkResources = false
+        }
+        debug {
             signingConfig = signingConfigs.getByName("debug")
+            isDebuggable  = true
         }
     }
 }

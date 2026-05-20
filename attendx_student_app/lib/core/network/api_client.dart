@@ -2,10 +2,16 @@ import 'package:dio/dio.dart';
 import '../storage/secure_storage.dart';
 
 class ApiClient {
-  // Android emulator → use 10.0.2.2 to reach host machine localhost.
-  // Physical device  → replace with your machine's LAN IP (e.g. 192.168.1.x).
-  // iOS simulator    → use localhost.
-  static const String baseUrl = 'http://10.0.2.2:5000/api';
+  /// Base URL is injected at build time via --dart-define=API_BASE_URL=...
+  ///
+  /// Build commands:
+  ///   Emulator : flutter run --dart-define=API_BASE_URL=http://10.0.2.2:5000/api
+  ///   Device   : flutter run --dart-define=API_BASE_URL=http://192.168.x.x:5000/api
+  ///   Release  : flutter build apk --dart-define=API_BASE_URL=https://api.attendx.ac.rw/api
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://10.0.2.2:5000/api',  // Android emulator default
+  );
 
   late Dio _dio;
   final SecureStorage _storage = SecureStorage();

@@ -15,9 +15,11 @@ if (process.env.NODE_ENV === "production") {
   }
 }
 
-const express = require("express");
-const http = require("http");
+const express   = require("express");
+const http      = require("http");
 const { Server } = require("socket.io");
+const cron      = require("node-cron");
+const { version: API_VERSION } = require('./package.json');
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
@@ -25,12 +27,14 @@ const morgan = require("morgan");
 const { testConnection } = require("./src/config/database");
 const { initSocket } = require("./src/socket/socket.handler");
 const { errorHandler } = require("./src/middleware/errorHandler");
-const { generalLimiter } = require("./src/middleware/rateLimiter");
+const { generalLimiter, authLimiter } = require("./src/middleware/rateLimiter");
+const vpnGuard   = require("./src/middleware/vpn-guard");
+const notify     = require("./src/services/notification.service");
 
-const authRoutes = require("./src/routes/auth.routes");
-const adminRoutes = require("./src/routes/admin.routes");
+const authRoutes     = require("./src/routes/auth.routes");
+const adminRoutes    = require("./src/routes/admin.routes");
 const lecturerRoutes = require("./src/routes/lecturer.routes");
-const studentRoutes = require("./src/routes/student.routes");
+const studentRoutes  = require("./src/routes/student.routes");
 const warningRoutes  = require("./src/routes/warningRoutes");
 const appealRoutes   = require("./src/routes/appeal.routes");
 const messageRoutes  = require("./src/routes/message.routes");
@@ -110,20 +114,34 @@ app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 app.use(generalLimiter);
 
 // -- Routes --------------------------------------------------------------------
-app.use("/api/auth", authRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api/lecturer", lecturerRoutes);
-app.use("/api/student", studentRoutes);
+// VPN guard on high-sensitivity endpoints (login + student check-in)
+app.use("/api/auth/login",      authLimiter, vpnGuard);
+app.use("/api/student/checkin", vpnGuard);
+
+app.use("/api/auth",         authRoutes);
+app.use("/api/admin",        adminRoutes);
+app.use("/api/lecturer",     lecturerRoutes);
+app.use("/api/student",      studentRoutes);
 app.use("/api/notifications", warningRoutes);
 app.use("/api/appeals",       appealRoutes);
 app.use("/api/messages",      messageRoutes);
 
-// Health check
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
-    version: "1.0.0",
+// Health check — reports DB connectivity and service versions
+app.get("/api/health", async (req, res) => {
+  const db = require("./src/config/database");
+  let dbStatus = "ok";
+  try { await db.query("SELECT 1"); } catch { dbStatus = "error"; }
+
+  res.status(dbStatus === "ok" ? 200 : 503).json({
+    status:    dbStatus === "ok" ? "ok" : "degraded",
+    version:   API_VERSION,
     timestamp: new Date().toISOString(),
+    services: {
+      database: dbStatus,
+      email:    process.env.SMTP_HOST ? "configured" : "disabled",
+      fcm:      process.env.FCM_SERVICE_ACCOUNT_KEY ? "configured" : "disabled",
+      vpnGuard: process.env.IPDATA_API_KEY ? "ipdata" : "ip-api-fallback",
+    },
   });
 });
 
@@ -145,6 +163,16 @@ async function start() {
   try {
     await testConnection();
     require("./src/services/fcm.service").init();
+
+    // ── Weekly attendance digest — every Monday at 07:00 ──────────────────
+    const cronSchedule = process.env.WEEKLY_DIGEST_SCHEDULE || "0 7 * * 1"
+    const cronTimezone = process.env.CRON_TIMEZONE          || "Africa/Kigali"
+    cron.schedule(cronSchedule, () => {
+      console.log("[Cron] Running weekly attendance digest...");
+      notify.sendWeeklyDigests().catch(err =>
+        console.error("[Cron] Weekly digest failed:", err.message)
+      );
+    }, { timezone: cronTimezone });
 
     server.listen(PORT, "0.0.0.0", () => {
       console.log(`\n AttendX API running on:`);
