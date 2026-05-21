@@ -98,6 +98,56 @@ async function updateCourse(req, res, next) {
   } catch (err) { next(err) }
 }
 
+async function deleteCourse(req, res, next) {
+  try {
+    await db.query('UPDATE courses SET is_active = 0 WHERE id = ?', [req.params.id])
+    res.json(success(null))
+  } catch (err) { next(err) }
+}
+
+// ── Course Enrollments ────────────────────────────────────────────────────────
+async function getCourseEnrollments(req, res, next) {
+  try {
+    const [rows] = await db.query(
+      `SELECT u.id, u.full_name, u.email, u.reg_number, e.enrolled_at
+         FROM enrollments e
+         JOIN users u ON u.id = e.student_id
+        WHERE e.course_id = ?
+        ORDER BY u.full_name`,
+      [req.params.id]
+    )
+    res.json(success(rows.map(r => ({
+      id: r.id, fullName: r.full_name, email: r.email,
+      regNumber: r.reg_number, enrolledAt: r.enrolled_at,
+    }))))
+  } catch (err) { next(err) }
+}
+
+async function enrollStudent(req, res, next) {
+  try {
+    const { studentId } = req.body
+    if (!studentId) return res.status(400).json(error('studentId is required'))
+    const [[student]] = await db.query('SELECT id, full_name, email FROM users WHERE id=? AND role=?', [studentId, 'student'])
+    if (!student) return res.status(404).json(error('Student not found'))
+    const id = randomUUID()
+    await db.query(
+      'INSERT IGNORE INTO enrollments (id, student_id, course_id) VALUES (?,?,?)',
+      [id, studentId, req.params.id]
+    )
+    res.status(201).json(success({ id: student.id, fullName: student.full_name, email: student.email }))
+  } catch (err) { next(err) }
+}
+
+async function unenrollStudent(req, res, next) {
+  try {
+    await db.query(
+      'DELETE FROM enrollments WHERE course_id=? AND student_id=?',
+      [req.params.id, req.params.studentId]
+    )
+    res.json(success(null))
+  } catch (err) { next(err) }
+}
+
 // ── Classrooms ────────────────────────────────────────────────────────────────
 async function getClassrooms(req, res, next) {
   try {
@@ -363,7 +413,8 @@ async function exportData(req, res, next) {
 
 module.exports = {
   getUsers, createUser, updateUser, deleteUser, bulkCreateUsers,
-  getCourses, createCourse, updateCourse,
+  getCourses, createCourse, updateCourse, deleteCourse,
+  getCourseEnrollments, enrollStudent, unenrollStudent,
   getClassrooms, createClassroom, deleteClassroom,
   getAnalytics,
   getSecurityConfig, updateSecurityConfig, getSecurityLogs,

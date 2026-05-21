@@ -75,7 +75,7 @@ async function sendMessage(req, res, next) {
       } else if (targetType === 'course') {
         io.to(`course:${targetId}`).emit(event, message)
       } else if (targetType === 'student') {
-        io.to(`student:${targetId}`).emit(event, message)
+        io.to(`user:${targetId}`).emit(event, message)
       }
     }
 

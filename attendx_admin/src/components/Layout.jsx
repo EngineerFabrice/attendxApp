@@ -2,16 +2,18 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   LayoutDashboard, Users, BookOpen, MapPin,
-  BarChart2, Settings, LogOut, GraduationCap, Bell
+  BarChart2, Settings, LogOut, GraduationCap, Bell, MessageSquare, Gavel
 } from 'lucide-react'
 
 const nav = [
-  { to: '/',           icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/users',      icon: Users,           label: 'Users' },
-  { to: '/courses',    icon: BookOpen,         label: 'Courses' },
-  { to: '/classrooms', icon: MapPin,           label: 'Classrooms' },
-  { to: '/analytics',  icon: BarChart2,        label: 'Analytics' },
-  { to: '/settings',   icon: Settings,         label: 'Settings' },
+  { to: '/',               icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/users',          icon: Users,           label: 'Users' },
+  { to: '/courses',        icon: BookOpen,        label: 'Courses' },
+  { to: '/classrooms',     icon: MapPin,          label: 'Classrooms' },
+  { to: '/analytics',      icon: BarChart2,       label: 'Analytics' },
+  { to: '/notifications',  icon: MessageSquare,   label: 'Notifications' },
+  { to: '/appeals',        icon: Gavel,           label: 'Appeals' },
+  { to: '/settings',       icon: Settings,        label: 'Settings' },
 ]
 
 export default function Layout() {

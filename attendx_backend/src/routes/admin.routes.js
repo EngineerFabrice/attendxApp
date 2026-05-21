@@ -12,9 +12,15 @@ router.put   ('/users/:id',          ctrl.updateUser)
 router.delete('/users/:id',          ctrl.deleteUser)
 
 // Courses
-router.get   ('/courses',            ctrl.getCourses)
-router.post  ('/courses',            ctrl.createCourse)
-router.put   ('/courses/:id',        ctrl.updateCourse)
+router.get   ('/courses',                              ctrl.getCourses)
+router.post  ('/courses',                              ctrl.createCourse)
+router.put   ('/courses/:id',                          ctrl.updateCourse)
+router.delete('/courses/:id',                          ctrl.deleteCourse)
+
+// Course enrollments
+router.get   ('/courses/:id/enrollments',              ctrl.getCourseEnrollments)
+router.post  ('/courses/:id/enrollments',              ctrl.enrollStudent)
+router.delete('/courses/:id/enrollments/:studentId',   ctrl.unenrollStudent)
 
 // Classrooms
 router.get   ('/classrooms',         ctrl.getClassrooms)

@@ -1,12 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const fcmService = require("../services/fcm.service");
+const { authenticate, requireRole } = require("../middleware/auth");
 
 // Initialize FCM on server start
 fcmService.init();
 
 // Send warning to a single student
-router.post("/send-warning", async (req, res) => {
+router.post("/send-warning", authenticate, requireRole("lecturer", "admin"), async (req, res) => {
   try {
     const db = require("../config/database");
     let { studentId, studentName, attendanceRate, courseName, sessionId } = req.body;
@@ -57,7 +58,7 @@ router.post("/send-warning", async (req, res) => {
 });
 
 // Send warnings to multiple students
-router.post("/send-bulk-warnings", async (req, res) => {
+router.post("/send-bulk-warnings", authenticate, requireRole("lecturer", "admin"), async (req, res) => {
   try {
     const db = require("../config/database");
     let { students, sessionId } = req.body;
@@ -111,7 +112,7 @@ router.post("/send-bulk-warnings", async (req, res) => {
 });
 
 // Get warning history for a student
-router.get("/warnings/:studentId", async (req, res) => {
+router.get("/warnings/:studentId", authenticate, requireRole("lecturer", "admin"), async (req, res) => {
   try {
     const { studentId } = req.params;
     const db = require("../config/database");

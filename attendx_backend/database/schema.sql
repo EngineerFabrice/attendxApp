@@ -113,6 +113,31 @@ CREATE TABLE IF NOT EXISTS notifications (
   INDEX idx_notif_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ── Messages / Announcements ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS messages (
+  id          VARCHAR(36)                          NOT NULL,
+  sender_id   VARCHAR(36)                          NOT NULL,
+  sender_name VARCHAR(120)                         NOT NULL,
+  sender_role ENUM('admin','lecturer')             NOT NULL,
+  target_type ENUM('all','course','student')       NOT NULL,
+  target_id   VARCHAR(36)                              NULL,
+  content     TEXT                                 NOT NULL,
+  sent_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_msg_sender (sender_id),
+  KEY idx_msg_target (target_type, target_id),
+  FOREIGN KEY fk_msg_sender (sender_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS message_reads (
+  message_id  VARCHAR(36) NOT NULL,
+  student_id  VARCHAR(36) NOT NULL,
+  read_at     TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (message_id, student_id),
+  FOREIGN KEY fk_mr_message (message_id) REFERENCES messages(id)  ON DELETE CASCADE,
+  FOREIGN KEY fk_mr_student (student_id) REFERENCES users(id)     ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ── Refresh Tokens ────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS refresh_tokens (
   id         VARCHAR(36)  NOT NULL,

@@ -8,6 +8,8 @@ import Courses from './pages/Courses'
 import Classrooms from './pages/Classrooms'
 import Analytics from './pages/Analytics'
 import Settings from './pages/Settings'
+import Notifications from './pages/Notifications'
+import Appeals from './pages/Appeals'
 
 function Protected({ children }) {
   const { user, loading } = useAuth()
@@ -27,6 +29,8 @@ export default function App() {
             <Route path="courses" element={<Courses />} />
             <Route path="classrooms" element={<Classrooms />} />
             <Route path="analytics" element={<Analytics />} />
+            <Route path="notifications" element={<Notifications />} />
+            <Route path="appeals" element={<Appeals />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>

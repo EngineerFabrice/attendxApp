@@ -45,15 +45,19 @@ export default function Classrooms() {
 
   async function handleCreate(form) {
     setSaving(true)
-    const r = await api.post('/admin/classrooms', form)
-    setRooms(r => [...r, r.data.data])
-    setShowModal(false)
-    setSaving(false)
+    try {
+      const res = await api.post('/admin/classrooms', form)
+      setRooms(prev => [...prev, res.data.data])
+      setShowModal(false)
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleDelete(id) {
     if (!confirm('Delete this classroom?')) return
-    setRooms(r => r.filter(x => x.id !== id))
+    await api.delete(`/admin/classrooms/${id}`)
+    setRooms(prev => prev.filter(x => x.id !== id))
   }
 
   if (loading) return <div className="flex justify-center py-20 text-slate-400">Loading…</div>
