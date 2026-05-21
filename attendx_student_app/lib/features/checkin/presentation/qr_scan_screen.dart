@@ -82,7 +82,7 @@ class _QrScanScreenState extends ConsumerState<QrScanScreen> {
       return;
     }
 
-    // Get GPS location
+    // Get GPS location — best of 3 readings to handle indoor fluctuation
     setState(() => _statusMessage = 'Getting your location…');
     Position position;
     try {
@@ -95,19 +95,39 @@ class _QrScanScreenState extends ConsumerState<QrScanScreen> {
         _setError('Location permission is required to check in.');
         return;
       }
-      position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-      );
+
+      // Take 3 readings and keep the most accurate one (lowest accuracy value)
+      const settings = LocationSettings(accuracy: LocationAccuracy.best);
+      final readings = <Position>[];
+      for (int i = 0; i < 3; i++) {
+        try {
+          final p = await Geolocator.getCurrentPosition(
+            locationSettings: settings,
+          ).timeout(const Duration(seconds: 8));
+          readings.add(p);
+        } catch (_) {
+          // skip failed reading, continue with what we have
+        }
+      }
+      if (readings.isEmpty) {
+        _setError('Failed to get location. Please enable GPS and try again.');
+        return;
+      }
+      // Pick reading with best (lowest) reported accuracy
+      readings.sort((a, b) => a.accuracy.compareTo(b.accuracy));
+      position = readings.first;
     } catch (e) {
       _setError('Failed to get location. Please enable GPS and try again.');
       return;
     }
 
-    // Geofence check
+    // Geofence check — factor in GPS accuracy so marginal cases aren't rejected
     final distance = Haversine.calculateDistance(
       position.latitude, position.longitude, classroomLat, classroomLng,
     );
-    if (distance > radiusM) {
+    // Allow extra buffer equal to the device's reported GPS accuracy
+    final effectiveRadius = radiusM + position.accuracy.clamp(0, 30);
+    if (distance > effectiveRadius) {
       _setError(
         'You are ${distance.toInt()}m away.\nMove within ${radiusM.toInt()}m of $roomName.',
       );
@@ -307,7 +327,8 @@ class _QrScanScreenState extends ConsumerState<QrScanScreen> {
   }
 }
 
-// Simple scan-frame overlay
+// Simple scan-frame overlay — uses 4 plain rectangles (no blend modes)
+// ColorFiltered + BlendMode.srcOut causes black camera texture on Android
 class _ScanOverlay extends StatelessWidget {
   final Color color;
   const _ScanOverlay({required this.color});
@@ -316,41 +337,42 @@ class _ScanOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     const frameSize = 240.0;
-    final top = (size.height - frameSize) / 2 - 40;
-    final left = (size.width - frameSize) / 2;
+    final frameTop  = (size.height - frameSize) / 2 - 40;
+    final frameLeft = (size.width  - frameSize) / 2;
+    const dimColor  = Color(0x99000000); // 60% black, no blend mode
 
     return Stack(
       children: [
-        // Dim surrounding
-        ColorFiltered(
-          colorFilter: ColorFilter.mode(
-              Colors.black.withValues(alpha: 0.5), BlendMode.srcOut),
-          child: Stack(
-            children: [
-              Container(
-                decoration: const BoxDecoration(
-                    color: Colors.black,
-                    backgroundBlendMode: BlendMode.dstOut),
-              ),
-              Positioned(
-                top: top,
-                left: left,
-                child: Container(
-                  width: frameSize,
-                  height: frameSize,
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        // Corner brackets
+        // Top bar
         Positioned(
-          top: top,
-          left: left,
+          top: 0, left: 0, right: 0,
+          height: frameTop,
+          child: ColoredBox(color: dimColor),
+        ),
+        // Bottom bar
+        Positioned(
+          top: frameTop + frameSize, left: 0, right: 0,
+          bottom: 0,
+          child: ColoredBox(color: dimColor),
+        ),
+        // Left bar
+        Positioned(
+          top: frameTop, left: 0,
+          width: frameLeft,
+          height: frameSize,
+          child: ColoredBox(color: dimColor),
+        ),
+        // Right bar
+        Positioned(
+          top: frameTop, right: 0,
+          width: frameLeft,
+          height: frameSize,
+          child: ColoredBox(color: dimColor),
+        ),
+        // Corner brackets drawn on top of the clear window
+        Positioned(
+          top: frameTop,
+          left: frameLeft,
           child: _Frame(size: frameSize, color: color),
         ),
       ],

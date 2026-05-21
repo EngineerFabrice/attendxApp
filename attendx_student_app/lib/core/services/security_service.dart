@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -130,8 +131,29 @@ class SecurityService {
 
   static Future<bool> _checkVpn() async {
     try {
+      // Method 1: connectivity_plus — works on Android 10+ (API 29+)
       final result = await Connectivity().checkConnectivity();
-      return result.contains(ConnectivityResult.vpn);
+      if (result.contains(ConnectivityResult.vpn)) return true;
+
+      // Method 2: network interface name check — works on ALL Android versions.
+      // Every VPN protocol creates a tunnel interface with a known prefix:
+      //   tun*   → OpenVPN, WireGuard, most commercial VPNs
+      //   ppp*   → PPTP, L2TP
+      //   tap*   → bridged VPNs
+      //   ipsec* → IPSec/IKEv2
+      //   utun*  → iOS/macOS utun (WireGuard, built-in VPN)
+      //   wg*    → WireGuard explicit naming
+      const vpnPrefixes = ['tun', 'ppp', 'tap', 'ipsec', 'utun', 'wg'];
+      final interfaces = await NetworkInterface.list(
+        includeLoopback: false,
+        type: InternetAddressType.any,
+      );
+      for (final iface in interfaces) {
+        final name = iface.name.toLowerCase();
+        if (vpnPrefixes.any((prefix) => name.startsWith(prefix))) return true;
+      }
+
+      return false;
     } catch (_) {
       return false;
     }
