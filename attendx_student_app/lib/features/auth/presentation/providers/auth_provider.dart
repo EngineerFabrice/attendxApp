@@ -1,3 +1,4 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/auth_repository.dart';
 import '../../domain/user_model.dart';
@@ -27,10 +28,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // Connect real-time socket after successful auth
       SocketService().connect(accessToken);
 
+      // Register FCM token so backend can push notifications to this device
+      _registerFcmToken();
+
       state = AuthAuthenticated(user);
     } catch (e) {
       state = const AuthError('Login failed. Please check your credentials.');
     }
+  }
+
+  Future<void> _registerFcmToken() async {
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) await _repository.registerDeviceToken(token);
+    } catch (_) {}
   }
 
   Future<void> logout() async {

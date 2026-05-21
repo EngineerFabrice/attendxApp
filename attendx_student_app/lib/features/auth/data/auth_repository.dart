@@ -38,6 +38,13 @@ class AuthRepository {
         data: {'token': token, 'newPassword': newPassword});
   }
 
+  Future<void> registerDeviceToken(String token) async {
+    await _dio.post('/student/device-token', data: {
+      'token': token,
+      'platform': 'android',
+    });
+  }
+
   Future<void> logout() async {
     try {
       await _dio.post(ApiEndpoints.logout);

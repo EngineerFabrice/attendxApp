@@ -113,6 +113,19 @@ CREATE TABLE IF NOT EXISTS notifications (
   INDEX idx_notif_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ── Device Tokens (FCM push notifications) ───────────────────────────────────
+CREATE TABLE IF NOT EXISTS device_tokens (
+  id          VARCHAR(36)                       NOT NULL,
+  user_id     VARCHAR(36)                       NOT NULL,
+  token       TEXT                              NOT NULL,
+  platform    ENUM('android','ios','web')       NOT NULL DEFAULT 'android',
+  created_at  TIMESTAMP                         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TIMESTAMP                         NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  FOREIGN KEY fk_dt_user (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_user_platform (user_id, platform)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ── Messages / Announcements ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS messages (
   id          VARCHAR(36)                          NOT NULL,

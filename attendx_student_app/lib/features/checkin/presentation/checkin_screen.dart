@@ -157,6 +157,7 @@ class _CheckinScreenState extends ConsumerState<CheckinScreen> {
       latitude: _currentPosition!.latitude,
       longitude: _currentPosition!.longitude,
       courseName: courseName,
+      entryCode: sessionCode,
       securityContext: secCtx,
     );
 

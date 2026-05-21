@@ -1,3 +1,4 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../constants/app_constants.dart';
@@ -72,6 +73,54 @@ class NotificationService {
       notificationDetails: _details(channelId: 'attendx_messages'),
       payload: 'messages',
     );
+  }
+
+  /// Call once from main() — after initialize().
+  /// Sets up FCM permission + foreground/tap listeners.
+  static Future<void> setupFcmListeners() async {
+    // Request permission (Android 13+, iOS)
+    await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    // Show notification while app is in FOREGROUND
+    FirebaseMessaging.onMessage.listen((message) {
+      showFromFcm(message);
+    });
+
+    // App was in BACKGROUND and user tapped the notification
+    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      _routeFromData(message.data);
+    });
+
+    // App was fully CLOSED and user tapped the notification
+    final initial = await FirebaseMessaging.instance.getInitialMessage();
+    if (initial != null) {
+      _routeFromData(initial.data);
+    }
+  }
+
+  /// Shows a local notification from an FCM RemoteMessage.
+  /// Called for foreground AND background (from the top-level handler).
+  static Future<void> showFromFcm(RemoteMessage message) async {
+    final n = message.notification;
+    if (n == null) return;
+    final channelId = message.data['channel'] as String? ?? 'attendx_main';
+    final payload   = message.data['route']   as String? ?? 'dashboard';
+    await _plugin.show(
+      id: message.hashCode,
+      title: n.title,
+      body: n.body,
+      notificationDetails: _details(channelId: channelId),
+      payload: payload,
+    );
+  }
+
+  static void _routeFromData(Map<String, dynamic> data) {
+    final route = data['route'] as String? ?? 'dashboard';
+    navigatorKey?.currentState?.pushNamed('/$route');
   }
 
   static NotificationDetails _details({String channelId = 'attendx_main'}) {
