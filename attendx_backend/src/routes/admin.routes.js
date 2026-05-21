@@ -25,6 +25,7 @@ router.delete('/courses/:id/enrollments/:studentId',   ctrl.unenrollStudent)
 // Classrooms
 router.get   ('/classrooms',         ctrl.getClassrooms)
 router.post  ('/classrooms',         ctrl.createClassroom)
+router.put   ('/classrooms/:id',     ctrl.updateClassroom)
 router.delete('/classrooms/:id',     ctrl.deleteClassroom)
 
 // Analytics

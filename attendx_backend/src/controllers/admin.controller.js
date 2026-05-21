@@ -173,6 +173,17 @@ async function createClassroom(req, res, next) {
   } catch (err) { next(err) }
 }
 
+async function updateClassroom(req, res, next) {
+  try {
+    const { name, building, capacity, latitude, longitude, radiusM } = req.body
+    await db.query(
+      'UPDATE classrooms SET name=?, building=?, capacity=?, latitude=?, longitude=?, radius_m=? WHERE id=?',
+      [name, building || null, capacity || 60, latitude, longitude, radiusM || 30, req.params.id]
+    )
+    res.json(success({ id: req.params.id, name, building, capacity, latitude, longitude, radiusM }))
+  } catch (err) { next(err) }
+}
+
 async function deleteClassroom(req, res, next) {
   try {
     await db.query('UPDATE classrooms SET is_active = 0 WHERE id = ?', [req.params.id])
@@ -415,7 +426,7 @@ module.exports = {
   getUsers, createUser, updateUser, deleteUser, bulkCreateUsers,
   getCourses, createCourse, updateCourse, deleteCourse,
   getCourseEnrollments, enrollStudent, unenrollStudent,
-  getClassrooms, createClassroom, deleteClassroom,
+  getClassrooms, createClassroom, updateClassroom, deleteClassroom,
   getAnalytics,
   getSecurityConfig, updateSecurityConfig, getSecurityLogs,
   getSettings, updateSettings, exportData,
