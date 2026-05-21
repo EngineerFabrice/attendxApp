@@ -7,7 +7,15 @@ class SocketService {
   factory SocketService() => _instance;
   SocketService._();
 
-  static const String _socketUrl = 'https://api.attendx.ac.rw';
+  /// Derived from API_BASE_URL at build time — strips the /api path suffix.
+  /// Example: API_BASE_URL=http://10.0.2.2:5000/api  → socket URL = http://10.0.2.2:5000
+  static final String _socketUrl = () {
+    const base = String.fromEnvironment(
+      'API_BASE_URL',
+      defaultValue: 'http://10.0.2.2:5000/api',
+    );
+    return base.endsWith('/api') ? base.substring(0, base.length - 4) : base;
+  }();
 
   sio.Socket? _socket;
 

@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Save, Bell, Clock, Database, Shield } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Save, Bell, Clock, Database, Shield, Loader2 } from 'lucide-react'
+import api from '../services/api'
 
 function Toggle({ value, onChange }) {
   return (
@@ -14,13 +15,61 @@ function Toggle({ value, onChange }) {
 
 export default function Settings() {
   const [notifs, setNotifs] = useState({ sessionStart: true, absenceAlert: true, lowAttendance: true, weeklyReport: false })
-  const [timeout, setTimeout_] = useState(60)
+  const [sessionTtl, setSessionTtl] = useState(90)
+  const [geofenceRadius, setGeofenceRadius] = useState(30)
+  const [lateThreshold, setLateThreshold] = useState(15)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState(null)
 
-  function handleSave() {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  useEffect(() => {
+    api.get('/admin/settings')
+      .then(r => {
+        const d = r.data.data
+        if (d.notificationPrefs) setNotifs(d.notificationPrefs)
+        if (d.sessionTtlMinutes)   setSessionTtl(d.sessionTtlMinutes)
+        if (d.geofenceRadiusM)     setGeofenceRadius(d.geofenceRadiusM)
+        if (d.lateThresholdMinutes) setLateThreshold(d.lateThresholdMinutes)
+      })
+      .catch(() => { /* keep defaults if endpoint missing */ })
+      .finally(() => setLoading(false))
+  }, [])
+
+  async function handleSave() {
+    setSaving(true)
+    setError(null)
+    try {
+      await api.put('/admin/settings', {
+        notificationPrefs: notifs,
+        sessionTtlMinutes: Number(sessionTtl),
+        geofenceRadiusM: Number(geofenceRadius),
+        lateThresholdMinutes: Number(lateThreshold),
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to save settings')
+    } finally {
+      setSaving(false)
+    }
   }
+
+  async function handleExport(format) {
+    try {
+      const r = await api.get(`/admin/export?format=${format}`, { responseType: 'blob' })
+      const url = URL.createObjectURL(r.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `attendx_export.${format}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      alert('Export failed')
+    }
+  }
+
+  if (loading) return <div className="flex justify-center py-20 text-slate-400">Loading…</div>
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -28,6 +77,13 @@ export default function Settings() {
         <h2 className="text-xl font-bold text-slate-800">System Settings</h2>
         <p className="text-slate-500 text-sm mt-1">Configure global system behaviour</p>
       </div>
+
+      {error && (
+        <div className="flex items-center justify-between bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+          {error}
+          <button onClick={() => setError(null)} className="ml-4 font-bold text-lg leading-none">&times;</button>
+        </div>
+      )}
 
       {/* Notifications */}
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
@@ -37,10 +93,10 @@ export default function Settings() {
         </div>
         <div className="space-y-4">
           {[
-            { key: 'sessionStart', label: 'Session start alerts', desc: 'Notify students when a session starts' },
-            { key: 'absenceAlert', label: 'Absence alerts', desc: 'Alert lecturers when attendance drops' },
-            { key: 'lowAttendance', label: 'Low attendance warnings', desc: 'Warn students below 75% threshold' },
-            { key: 'weeklyReport', label: 'Weekly digest', desc: 'Send weekly summary emails to admins' },
+            { key: 'sessionStart',   label: 'Session start alerts',       desc: 'Notify students when a session starts' },
+            { key: 'absenceAlert',   label: 'Absence alerts',             desc: 'Alert lecturers when attendance drops' },
+            { key: 'lowAttendance',  label: 'Low attendance warnings',    desc: `Warn students below threshold` },
+            { key: 'weeklyReport',   label: 'Weekly digest',              desc: 'Send weekly summary emails to admins' },
           ].map(({ key, label, desc }) => (
             <div key={key} className="flex items-center justify-between py-2">
               <div>
@@ -53,27 +109,24 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Session timeout */}
+      {/* Session config */}
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
         <div className="flex items-center gap-2 mb-4">
           <Clock size={18} className="text-blue-600" />
           <h3 className="font-semibold text-slate-800">Session Configuration</h3>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <label className="text-slate-600 text-sm">JWT Token Expiration (minutes)</label>
-            <input
-              type="number"
-              value={timeout}
-              onChange={e => setTimeout_(e.target.value)}
-              min={15}
-              max={1440}
-              className="input mt-1.5"
-            />
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="text-slate-600 text-sm">Session TTL (minutes)</label>
+            <input type="number" value={sessionTtl} onChange={e => setSessionTtl(e.target.value)} min={10} max={300} className="input mt-1.5" />
           </div>
-          <div className="flex-1">
-            <label className="text-slate-600 text-sm">Default Geofence Radius (meters)</label>
-            <input type="number" defaultValue={30} min={10} max={200} className="input mt-1.5" />
+          <div>
+            <label className="text-slate-600 text-sm">Default Geofence Radius (m)</label>
+            <input type="number" value={geofenceRadius} onChange={e => setGeofenceRadius(e.target.value)} min={10} max={200} className="input mt-1.5" />
+          </div>
+          <div>
+            <label className="text-slate-600 text-sm">Late Threshold (minutes)</label>
+            <input type="number" value={lateThreshold} onChange={e => setLateThreshold(e.target.value)} min={1} max={60} className="input mt-1.5" />
           </div>
         </div>
       </div>
@@ -87,15 +140,15 @@ export default function Settings() {
         <div className="space-y-3">
           <div className="flex items-center justify-between py-2">
             <div>
-              <p className="text-slate-700 font-medium text-sm">Two-factor authentication</p>
-              <p className="text-slate-400 text-xs">Require 2FA for admin accounts</p>
+              <p className="text-slate-700 font-medium text-sm">Device fingerprinting</p>
+              <p className="text-slate-400 text-xs">Track student check-in devices</p>
             </div>
-            <Toggle value={false} onChange={() => {}} />
+            <Toggle value={true} onChange={() => {}} />
           </div>
           <div className="flex items-center justify-between py-2">
             <div>
-              <p className="text-slate-700 font-medium text-sm">Device fingerprinting</p>
-              <p className="text-slate-400 text-xs">Track student check-in devices</p>
+              <p className="text-slate-700 font-medium text-sm">VPN / Proxy blocking</p>
+              <p className="text-slate-400 text-xs">Block check-ins from VPN or proxy IPs</p>
             </div>
             <Toggle value={true} onChange={() => {}} />
           </div>
@@ -106,18 +159,17 @@ export default function Settings() {
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
         <div className="flex items-center gap-2 mb-4">
           <Database size={18} className="text-blue-600" />
-          <h3 className="font-semibold text-slate-800">Data Backup</h3>
+          <h3 className="font-semibold text-slate-800">Data Export</h3>
         </div>
         <div className="flex gap-3">
-          <button className="btn-secondary">Export CSV</button>
-          <button className="btn-secondary">Export JSON</button>
-          <button className="btn-secondary text-orange-600 border-orange-200 hover:bg-orange-50">Clear Old Sessions</button>
+          <button onClick={() => handleExport('csv')}  className="btn-secondary">Export CSV</button>
+          <button onClick={() => handleExport('json')} className="btn-secondary">Export JSON</button>
         </div>
       </div>
 
-      <button onClick={handleSave} className="btn-primary flex items-center gap-2">
-        <Save size={16} />
-        {saved ? 'Saved!' : 'Save Settings'}
+      <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2">
+        {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+        {saving ? 'Saving…' : saved ? '✓ Saved!' : 'Save Settings'}
       </button>
     </div>
   )

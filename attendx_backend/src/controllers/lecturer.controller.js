@@ -37,13 +37,15 @@ async function getDashboard(req, res, next) {
       [lecturerId],
     );
 
-    const [active] = await db.query(
-      `SELECT s.id, s.session_code AS code, s.status,
-              c.code AS courseCode, c.name AS courseName, cl.name AS roomName
+    const [todaySessions] = await db.query(
+      `SELECT s.id, s.session_code AS code, s.status, s.started_at, s.closed_at,
+              c.code AS courseCode, c.name AS courseName, cl.name AS roomName,
+              (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = s.course_id) AS students
          FROM attendance_sessions s
-         JOIN courses c ON c.id = s.course_id
+         JOIN courses c  ON c.id  = s.course_id
          JOIN classrooms cl ON cl.id = s.classroom_id
-        WHERE s.lecturer_id = ? AND s.status = 'active' LIMIT 1`,
+        WHERE s.lecturer_id = ? AND DATE(s.started_at) = CURDATE()
+        ORDER BY s.started_at ASC`,
       [lecturerId],
     );
 
@@ -56,6 +58,8 @@ async function getDashboard(req, res, next) {
       [lecturerId],
     );
 
+    const activeSession = todaySessions.find(s => s.status === 'active') || null;
+
     res.json(
       success({
         courses: courses.map((c) => ({
@@ -64,15 +68,18 @@ async function getDashboard(req, res, next) {
           name: c.name,
           students: Number(c.students),
         })),
-        todaySchedule: courses.slice(0, 2).map((c, i) => ({
-          time: i === 0 ? "08:00" : "11:00",
-          course: c.code,
-          room: "LT-3",
-          students: Number(c.students),
+        todaySchedule: todaySessions.map(s => ({
+          id: s.id,
+          time: new Date(s.started_at).toTimeString().slice(0, 5),
+          course: s.courseCode,
+          courseName: s.courseName,
+          room: s.roomName,
+          students: Number(s.students),
+          status: s.status,
         })),
         overallAttendance: Number(stats.overallAttendance) || 0,
         totalSessions: Number(stats.totalSessions),
-        activeSession: active[0] || null,
+        activeSession,
       }),
     );
   } catch (err) {

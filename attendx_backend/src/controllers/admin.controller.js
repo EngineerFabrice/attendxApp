@@ -281,10 +281,91 @@ async function getSecurityLogs(req, res, next) {
   } catch (err) { next(err) }
 }
 
+// ── System Settings ───────────────────────────────────────────────────────────
+async function getSettings(req, res, next) {
+  try {
+    const [rows] = await db.query(`SELECT config_key, config_value FROM security_config`)
+    const cfg = {}
+    rows.forEach(r => { try { cfg[r.config_key] = JSON.parse(r.config_value) } catch { cfg[r.config_key] = r.config_value } })
+
+    res.json(success({
+      notificationPrefs: {
+        sessionStart:  true,
+        absenceAlert:  true,
+        lowAttendance: true,
+        weeklyReport:  false,
+      },
+      sessionTtlMinutes:    Number(process.env.SESSION_TTL_MINUTES)          || 90,
+      geofenceRadiusM:      Number(process.env.DEFAULT_RADIUS_M)             || 30,
+      lateThresholdMinutes: Number(process.env.LATE_THRESHOLD_MINUTES)       || 15,
+      attendanceWarning:    Number(process.env.ATTENDANCE_WARNING_THRESHOLD)  || 75,
+      securityConfig:       cfg,
+    }))
+  } catch (err) { next(err) }
+}
+
+async function updateSettings(req, res, next) {
+  try {
+    const { sessionTtlMinutes, geofenceRadiusM, lateThresholdMinutes } = req.body
+
+    // Persist to security_config as a simple key-value store
+    const updates = []
+    if (sessionTtlMinutes    != null) updates.push(['session_ttl_minutes',    String(sessionTtlMinutes)])
+    if (geofenceRadiusM      != null) updates.push(['geofence_radius_m',      String(geofenceRadiusM)])
+    if (lateThresholdMinutes != null) updates.push(['late_threshold_minutes', String(lateThresholdMinutes)])
+
+    for (const [key, value] of updates) {
+      await db.query(
+        `INSERT INTO security_config (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?`,
+        [key, value, value]
+      )
+    }
+
+    res.json(success({ message: 'Settings saved successfully' }))
+  } catch (err) { next(err) }
+}
+
+// ── Data Export ───────────────────────────────────────────────────────────────
+async function exportData(req, res, next) {
+  try {
+    const format = req.query.format === 'json' ? 'json' : 'csv'
+
+    const [records] = await db.query(`
+      SELECT u.full_name AS student, u.reg_number AS regNumber,
+             c.code AS courseCode, c.name AS courseName,
+             s.session_code AS sessionCode, r.status,
+             r.submission_method AS method, r.marked_at AS markedAt
+        FROM attendance_records r
+        JOIN attendance_sessions s ON s.id = r.session_id
+        JOIN courses c ON c.id = s.course_id
+        JOIN users u ON u.id = r.student_id
+       ORDER BY r.marked_at DESC
+    `)
+
+    if (format === 'json') {
+      res.setHeader('Content-Type', 'application/json')
+      res.setHeader('Content-Disposition', 'attachment; filename="attendx_export.json"')
+      return res.json(records)
+    }
+
+    // CSV
+    const header = 'Student,Reg Number,Course Code,Course Name,Session Code,Status,Method,Marked At'
+    const rows = records.map(r =>
+      [r.student, r.regNumber, r.courseCode, r.courseName, r.sessionCode, r.status, r.method, r.markedAt]
+        .map(v => `"${String(v ?? '').replace(/"/g, '""')}"`)
+        .join(',')
+    )
+    res.setHeader('Content-Type', 'text/csv')
+    res.setHeader('Content-Disposition', 'attachment; filename="attendx_export.csv"')
+    res.send([header, ...rows].join('\n'))
+  } catch (err) { next(err) }
+}
+
 module.exports = {
   getUsers, createUser, updateUser, deleteUser, bulkCreateUsers,
   getCourses, createCourse, updateCourse,
   getClassrooms, createClassroom, deleteClassroom,
   getAnalytics,
   getSecurityConfig, updateSecurityConfig, getSecurityLogs,
+  getSettings, updateSettings, exportData,
 }

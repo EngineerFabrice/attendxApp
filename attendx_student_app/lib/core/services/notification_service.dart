@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import '../constants/app_constants.dart';
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _plugin =
@@ -56,7 +57,7 @@ class NotificationService {
     await _plugin.show(
       id: 12,
       title: 'Absence Warning',
-      body: '$courseName attendance ${rate.toInt()}% — below 75% threshold',
+      body: '$courseName attendance ${rate.toInt()}% — below ${AppConstants.attendanceWarningThreshold}% threshold',
       notificationDetails: _details(channelId: 'attendx_alerts'),
       payload: 'messages',
     );

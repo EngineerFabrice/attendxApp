@@ -71,8 +71,8 @@ function DirectMessageModal({ student, onClose }) {
   )
 }
 
-function Modal({ onClose, onSubmit, loading }) {
-  const [form, setForm] = useState({ fullName: '', email: '', regNumber: '', course: 'CS301' })
+function Modal({ onClose, onSubmit, loading, courses }) {
+  const [form, setForm] = useState({ fullName: '', email: '', regNumber: '', course: courses[0]?.code || '' })
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
 
   return (
@@ -84,7 +84,7 @@ function Modal({ onClose, onSubmit, loading }) {
           <input required value={form.regNumber} onChange={set('regNumber')} placeholder="Registration number" className="input" />
           <input required type="email" value={form.email} onChange={set('email')} placeholder="Email" className="input" />
           <select value={form.course} onChange={set('course')} className="input">
-            {['CS301', 'CS201', 'CS350'].map(c => <option key={c}>{c}</option>)}
+            {courses.map(c => <option key={c.id} value={c.code}>{c.code} — {c.name}</option>)}
           </select>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 btn-secondary">Cancel</button>
@@ -98,6 +98,7 @@ function Modal({ onClose, onSubmit, loading }) {
 
 export default function Students() {
   const [students, setStudents] = useState([])
+  const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showModal, setShowModal] = useState(false)
@@ -107,8 +108,15 @@ export default function Students() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    api.get('/lecturer/students')
-      .then(r => { setStudents(r.data.data); setLoading(false) })
+    Promise.all([
+      api.get('/lecturer/students'),
+      api.get('/lecturer/courses'),
+    ])
+      .then(([studRes, courseRes]) => {
+        setStudents(studRes.data.data)
+        setCourses(courseRes.data.data || [])
+        setLoading(false)
+      })
       .catch(err => { setError(err.response?.data?.error || 'Request failed'); setLoading(false) })
   }, [])
 
@@ -223,7 +231,7 @@ export default function Students() {
         {filtered.length === 0 && <p className="text-center py-10 text-slate-400">No students found</p>}
       </div>
 
-      {showModal && <Modal onClose={() => setShowModal(false)} onSubmit={handleAdd} loading={saving} />}
+      {showModal && <Modal onClose={() => setShowModal(false)} onSubmit={handleAdd} loading={saving} courses={courses} />}
       {messageTarget && <DirectMessageModal student={messageTarget} onClose={() => setMessageTarget(null)} />}
     </div>
   )

@@ -8,18 +8,32 @@ fcmService.init();
 // Send warning to a single student
 router.post("/send-warning", async (req, res) => {
   try {
-    const { studentId, studentName, attendanceRate, courseName } = req.body;
+    const db = require("../config/database");
+    let { studentId, studentName, attendanceRate, courseName, sessionId } = req.body;
 
-    const missingFields = [];
-    if (!studentId) missingFields.push("studentId");
-    if (attendanceRate === undefined || attendanceRate === null)
-      missingFields.push("attendanceRate");
-    if (!courseName) missingFields.push("courseName");
+    if (!studentId) return res.status(400).json({ error: "Missing required field: studentId" });
+    if (!courseName && !sessionId) return res.status(400).json({ error: "Missing required field: courseName or sessionId" });
 
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        error: `Missing required fields: ${missingFields.join(", ")}`,
-      });
+    // Resolve courseName from sessionId when not provided
+    if (!courseName && sessionId) {
+      const [[sess]] = await db.query(
+        `SELECT c.name AS courseName FROM attendance_sessions s JOIN courses c ON c.id = s.course_id WHERE s.id = ?`,
+        [sessionId]
+      );
+      courseName = sess?.courseName || "Unknown Course";
+    }
+
+    // Auto-derive actual attendance rate from DB when not provided or is 0
+    if (!attendanceRate || attendanceRate === 0) {
+      const [[rate]] = await db.query(
+        `SELECT ROUND(100 * SUM(CASE WHEN r.status='present' THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0), 1) AS rate
+           FROM attendance_records r
+           JOIN attendance_sessions s ON s.id = r.session_id
+           JOIN courses c ON c.name = ?
+          WHERE r.student_id = ? AND s.course_id = c.id`,
+        [courseName, studentId]
+      );
+      attendanceRate = Number(rate?.rate) || 0;
     }
 
     await fcmService.notifyAbsenceWarning({
@@ -45,13 +59,42 @@ router.post("/send-warning", async (req, res) => {
 // Send warnings to multiple students
 router.post("/send-bulk-warnings", async (req, res) => {
   try {
-    const { students } = req.body;
+    const db = require("../config/database");
+    let { students, sessionId } = req.body;
 
     if (!students || !students.length) {
       return res.status(400).json({ error: "No students provided" });
     }
 
-    const results = await fcmService.notifyBulkAbsenceWarnings(students);
+    // Resolve course name from sessionId when students have no courseName
+    let sessionCourseName = null;
+    if (sessionId) {
+      const [[sess]] = await db.query(
+        `SELECT c.name AS courseName FROM attendance_sessions s JOIN courses c ON c.id = s.course_id WHERE s.id = ?`,
+        [sessionId]
+      );
+      sessionCourseName = sess?.courseName;
+    }
+
+    // For each student with missing/zero rate, derive from DB
+    const enriched = await Promise.all(students.map(async s => {
+      const courseName = s.course || s.courseName || sessionCourseName || "Unknown Course";
+      let rate = s.attendanceRate;
+      if (!rate || rate === 0) {
+        const [[r]] = await db.query(
+          `SELECT ROUND(100 * SUM(CASE WHEN ar.status='present' THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0), 1) AS rate
+             FROM attendance_records ar
+             JOIN attendance_sessions ses ON ses.id = ar.session_id
+             JOIN courses c ON c.name = ?
+            WHERE ar.student_id = ? AND ses.course_id = c.id`,
+          [courseName, s.id]
+        );
+        rate = Number(r?.rate) || 0;
+      }
+      return { ...s, attendanceRate: rate, course: courseName };
+    }));
+
+    const results = await fcmService.notifyBulkAbsenceWarnings(enriched);
 
     res.json({
       success: true,

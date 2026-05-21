@@ -29,4 +29,11 @@ router.get   ('/security/config',    ctrl.getSecurityConfig)
 router.put   ('/security/config',    ctrl.updateSecurityConfig)
 router.get   ('/security/logs',      ctrl.getSecurityLogs)
 
+// System settings
+router.get   ('/settings',           ctrl.getSettings)
+router.put   ('/settings',           ctrl.updateSettings)
+
+// Data export
+router.get   ('/export',             ctrl.exportData)
+
 module.exports = router

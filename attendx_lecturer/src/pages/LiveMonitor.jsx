@@ -195,8 +195,8 @@ export default function LiveMonitor() {
       await api.post("/notifications/send-warning", {
         studentId: student.id,
         studentName: student.fullName,
-        attendanceRate: 0,
-        courseName: "this session",
+        sessionId: id,
+        attendanceRate: student.attendanceRate || 0,
       });
 
       alert(`📱 Reminder sent to ${student.fullName}`);
@@ -227,11 +227,11 @@ export default function LiveMonitor() {
 
     try {
       const response = await api.post("/notifications/send-bulk-warnings", {
+        sessionId: id,
         students: absentStudents.map((s) => ({
           id: s.id,
           fullName: s.fullName,
-          attendanceRate: 0,
-          course: "this session",
+          attendanceRate: s.attendanceRate || 0,
         })),
       });
 

@@ -5,6 +5,7 @@ plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.google.gms.google-services")
 }
 
 // ── Load signing credentials from key.properties ──────────────────────────────
@@ -15,7 +16,7 @@ if (keyPropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.attendx.student"
+    namespace = "com.example.attendx_student_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -42,7 +43,7 @@ android {
     }
 
     defaultConfig {
-        applicationId  = "com.attendx.student"
+        applicationId  = "com.example.attendx_student_app"
         minSdk         = flutter.minSdkVersion
         targetSdk      = flutter.targetSdkVersion
         versionCode    = flutter.versionCode
